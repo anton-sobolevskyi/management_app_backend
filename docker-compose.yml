@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:16-alpine  # Use alpine variant for smaller size (recommended)
+    container_name: postgres16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}   # ← CHANGE THIS in production!
+      POSTGRES_DB: ${POSTGRES_DB}
+      # Optional: timezone
+      TZ: UTC
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Optional: mount init scripts (place .sql files in ./init directory)
+      - ./init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Optional: resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 256MB
+
+volumes:
+  postgres_data:

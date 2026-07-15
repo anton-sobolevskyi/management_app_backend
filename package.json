@@ -1,0 +1,29 @@
+{
+  "name": "my-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "deno run -A --env-file=.env --watch src/main.ts",
+    "build": "deno check src/main.ts",
+    "start": "deno run -A --env-file=.env src/main.ts",
+    "db:generate": "deno run -A --env-file=.env npm:prisma@^7.8.0 generate",
+    "db:push": "deno run -A --env-file=.env npm:prisma@^7.8.0 db push",
+    "db:migrate": "deno run -A --env-file=.env npm:prisma@^7.8.0 migrate dev",
+    "db:seed": "deno run -A --env-file=.env npm:prisma@^7.8.0 db seed"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.27",
+    "@nestjs/core": "^11.1.27",
+    "@nestjs/platform-express": "^11.1.27",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@prisma/compute-sdk": "latest",
+    "@types/node": "^26.0.0",
+    "prisma": "^7.8.0",
+    "typescript": "^6.0.3"
+  }
+}
