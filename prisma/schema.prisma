@@ -1,14 +1,198 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
   moduleFormat = "cjs"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────
+// User
+// ─────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  avatarId     String?  @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  avatar             Attachment?     @relation("UserAvatar", fields: [avatarId], references: [id], onDelete: SetNull)
+  projectMemberships ProjectMember[]
+  createdTasks       Task[]          @relation("TaskCreatedBy")
+  assignedTasks      Task[]          @relation("TaskAssignedTo")
+  comments           Comment[]
+  refreshTokens      RefreshToken[]
+  uploadedFiles      Attachment[]    @relation("AttachmentUploadedBy")
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────
+// Auth
+// ─────────────────────────────────────────────
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revoked   Boolean  @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ─────────────────────────────────────────────
+// Project
+// ─────────────────────────────────────────────
+
+model Project {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  members ProjectMember[]
+  tasks   Task[]
+
+  @@index([deletedAt])
+  @@map("projects")
+}
+
+model ProjectMember {
+  id        String   @id @default(uuid())
+  userId    String
+  projectId String
+  role      Role     @default(MEMBER)
+  joinedAt  DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+  @@index([projectId])
+  @@map("project_members")
+}
+
+// ─────────────────────────────────────────────
+// Task
+// ─────────────────────────────────────────────
+
+model Task {
+  id           String     @id @default(uuid())
+  title        String
+  description  String?
+  status       TaskStatus @default(TODO)
+  priority     Priority   @default(MEDIUM)
+  dueDate      DateTime?
+  projectId    String
+  createdById  String
+  assignedToId String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  deletedAt    DateTime?
+
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy   User         @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  assignedTo  User?        @relation("TaskAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  comments    Comment[]
+  attachments Attachment[] @relation("TaskAttachments")
+
+  @@index([projectId])
+  @@index([assignedToId])
+  @@index([status])
+  @@index([deletedAt])
+  @@map("tasks")
+}
+
+// ─────────────────────────────────────────────
+// Comment
+// ─────────────────────────────────────────────
+
+model Comment {
+  id        String    @id @default(uuid())
+  content   String
+  taskId    String
+  authorId  String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  task        Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author      User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  attachments Attachment[] @relation("CommentAttachments")
+
+  @@index([taskId])
+  @@index([deletedAt])
+  @@map("comments")
+}
+
+// ─────────────────────────────────────────────
+// Attachment
+// ─────────────────────────────────────────────
+
+model Attachment {
+  id           String         @id @default(uuid())
+  fileName     String
+  mimeType     String
+  sizeBytes    Int
+  s3Key        String         @unique
+  s3Bucket     String
+  type         AttachmentType @default(FILE)
+  uploadedById String
+  taskId       String?
+  commentId    String?
+  createdAt    DateTime       @default(now())
+
+  uploadedBy  User     @relation("AttachmentUploadedBy", fields: [uploadedById], references: [id], onDelete: Cascade)
+  task        Task?    @relation("TaskAttachments", fields: [taskId], references: [id], onDelete: Cascade)
+  comment     Comment? @relation("CommentAttachments", fields: [commentId], references: [id], onDelete: Cascade)
+  avatarOwner User?    @relation("UserAvatar")
+
+  @@index([taskId])
+  @@index([commentId])
+  @@index([uploadedById])
+  @@map("attachments")
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum AttachmentType {
+  FILE
+  IMAGE
 }
