@@ -16,13 +16,14 @@ datasource db {
 // ─────────────────────────────────────────────
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
+  id           String    @id @default(uuid())
+  email        String    @unique
   passwordHash String
   name         String
-  avatarId     String?  @unique
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  avatarId     String?   @unique
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
 
   avatar             Attachment?     @relation("UserAvatar", fields: [avatarId], references: [id], onDelete: SetNull)
   projectMemberships ProjectMember[]
@@ -32,6 +33,7 @@ model User {
   refreshTokens      RefreshToken[]
   uploadedFiles      Attachment[]    @relation("AttachmentUploadedBy")
 
+  @@index([deletedAt])
   @@map("users")
 }
 
