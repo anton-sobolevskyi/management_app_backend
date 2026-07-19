@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { AttachmentType } from '../../generated/prisma';
+import { AttachmentType } from '../../generated/prisma/enums';
 
 export class AttachmentResponseDto {
   @ApiProperty()

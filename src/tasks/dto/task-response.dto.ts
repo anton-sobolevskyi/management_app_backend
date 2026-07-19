@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { TaskStatus, Priority } from '../../generated/prisma';
+import { TaskStatus, Priority } from '../../generated/prisma/enums';
 import { CommentResponseDto } from '../../comments/dto/comment-response.dto';
 import { AttachmentResponseDto } from '../../attachments/dto/attachment-response.dto';
 

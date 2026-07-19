@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ProjectResponseDto } from './dto/project-response.dto';
-import { Role } from '../generated/prisma';
+import { Role } from '../generated/prisma/enums';
 
 @Injectable()
 export class ProjectsService {

@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { S3Service } from '../s3/s3.service';
-import { AttachmentType } from '../generated/prisma';
+import { AttachmentType } from '../generated/prisma/enums';
 import { AttachmentResponseDto } from './dto/attachment-response.dto';
 import { DownloadUrlResponseDto } from './dto/download-url-response.dto';
 
@@ -155,8 +155,8 @@ export class AttachmentsService {
   async getDownloadUrl(id: string): Promise<DownloadUrlResponseDto> {
     const attachment = await this.findOne(id);
     const url = await this.s3Service.getPresignedUrl(
-      attachment.s3Key,
-      attachment.s3Bucket ?? '',
+      attachment['s3Key'],
+      attachment['s3Bucket'] ?? '',
     );
 
     return {
