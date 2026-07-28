@@ -16,8 +16,8 @@ async function bootstrap() {
   });
 
   const config = new DocumentBuilder()
-    .setTitle('TaskFlow API')
-    .setDescription('Task and project management API')
+    .setTitle('API')
+    .setDescription('Project management API')
     .setVersion('1.0')
     .addBearerAuth(
       {
@@ -29,7 +29,9 @@ async function bootstrap() {
     )
     .build();
 
-  const document = SwaggerModule.createDocument(app, config);
+  const document = SwaggerModule.createDocument(app, config, {
+    operationIdFactory: (controllerKey, methodKey) => controllerKey.toLocaleLowerCase().replace('controller', '') + `-${methodKey.toLocaleLowerCase()}`
+  });
   SwaggerModule.setup('api-docs', app, document);
 
   await app.listen(process.env.PORT ?? 3000);
