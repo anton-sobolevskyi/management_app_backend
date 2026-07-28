@@ -20,7 +20,7 @@ import { ProjectResponseDto } from './dto/project-response.dto';
 @UseGuards(JwtAuthGuard)
 @Controller('projects')
 export class ProjectsController {
-  constructor(private projectsService: ProjectsService) { }
+  constructor(private projectsService: ProjectsService) {}
 
   @Post()
   create(@Body() dto: CreateProjectDto, @Request() req: ExpressRequest) {

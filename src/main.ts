@@ -30,7 +30,9 @@ async function bootstrap() {
     .build();
 
   const document = SwaggerModule.createDocument(app, config, {
-    operationIdFactory: (controllerKey, methodKey) => controllerKey.toLocaleLowerCase().replace('controller', '') + `-${methodKey.toLocaleLowerCase()}`
+    operationIdFactory: (controllerKey, methodKey) =>
+      controllerKey.toLocaleLowerCase().replace('controller', '') +
+      `-${methodKey.toLocaleLowerCase()}`,
   });
   SwaggerModule.setup('api-docs', app, document);
 

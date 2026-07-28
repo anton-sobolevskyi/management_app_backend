@@ -11,7 +11,13 @@ import { LocalStrategy } from './strategies/local.strategy';
 
 @Module({
   imports: [PrismaModule, PassportModule, JwtModule.register({})],
-  providers: [AuthService, JwtAuthGuard, LocalAuthGuard, JwtStrategy, LocalStrategy],
+  providers: [
+    AuthService,
+    JwtAuthGuard,
+    LocalAuthGuard,
+    JwtStrategy,
+    LocalStrategy,
+  ],
   controllers: [AuthController],
 })
-export class AuthModule { }
+export class AuthModule {}

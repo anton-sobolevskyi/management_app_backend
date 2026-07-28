@@ -18,4 +18,4 @@ import { AttachmentsModule } from './attachments/attachments.module';
     AttachmentsModule,
   ],
 })
-export class AppModule { }
+export class AppModule {}
