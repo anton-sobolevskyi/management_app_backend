@@ -18,7 +18,7 @@ import type { Request as ExpressRequest } from 'express';
 @UseGuards(JwtAuthGuard)
 @Controller()
 export class AttachmentsController {
-  constructor(private attachmentsService: AttachmentsService) {}
+  constructor(private attachmentsService: AttachmentsService) { }
 
   @Post('tasks/:taskId/attachments')
   @UseInterceptors(
@@ -64,7 +64,7 @@ export class AttachmentsController {
     );
   }
 
-  @Post('users/me/avatar')
+  @Post('users/avatar')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: 10 * 1024 * 1024 },

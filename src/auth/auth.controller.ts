@@ -17,13 +17,14 @@ import { RegisterDto } from './dto/register.dto';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthResponseDto } from './dto/auth-response.dto';
+import { LoginDto } from './dto/login.dto';
 
 const REFRESH_COOKIE_NAME = 'refreshToken';
 const REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(private authService: AuthService) { }
 
   @ApiOperation({ summary: 'Register a new user' })
   @ApiResponse({ status: 201, type: AuthResponseDto })
@@ -45,6 +46,7 @@ export class AuthController {
   @HttpCode(200)
   @Post('login')
   async login(
+    @Body() body: LoginDto,
     @Request() req: ExpressRequest,
     @Response({ passthrough: true }) res: ExpressResponse,
   ): Promise<AuthResponseDto> {
