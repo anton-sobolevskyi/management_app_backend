@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { TasksService } from './tasks.service';
 import { UpdateTaskDto } from './dto/update-task.dto';
-import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { TaskResponseDto } from './dto/task-response.dto';
 
@@ -17,7 +17,7 @@ import { TaskResponseDto } from './dto/task-response.dto';
 @UseGuards(JwtAuthGuard)
 @Controller('tasks')
 export class TaskController {
-  constructor(private tasksService: TasksService) { }
+  constructor(private tasksService: TasksService) {}
 
   @ApiOperation({ summary: 'Get a task by ID' })
   @ApiResponse({ status: 200, type: TaskResponseDto })

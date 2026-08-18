@@ -1,2 +1,2 @@
 npx lint-staged
-npm test -- --bail --findRelatedTests
+npm run test
