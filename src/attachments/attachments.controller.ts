@@ -13,13 +13,14 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AttachmentsService } from './attachments.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import type { Request as ExpressRequest } from 'express';
+import { ApiOperation } from '@nestjs/swagger';
 
 @UseGuards(JwtAuthGuard)
 @Controller()
 export class AttachmentsController {
   constructor(private attachmentsService: AttachmentsService) { }
 
+  @ApiOperation({ summary: 'Upload an attachment for a task' })
   @Post('tasks/:taskId/attachments')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -29,7 +30,7 @@ export class AttachmentsController {
   uploadForTask(
     @Param('taskId') taskId: string,
     @UploadedFile() file: Express.Multer.File,
-    @Request() req: ExpressRequest,
+    @Request() req: Express.Request,
   ) {
     const user = req.user;
 
@@ -40,6 +41,7 @@ export class AttachmentsController {
     return this.attachmentsService.uploadForTask(taskId, file, user['userId']);
   }
 
+  @ApiOperation({ summary: 'Upload an attachment for a comment' })
   @Post('comments/:commentId/attachments')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -49,7 +51,7 @@ export class AttachmentsController {
   uploadForComment(
     @Param('commentId') commentId: string,
     @UploadedFile() file: Express.Multer.File,
-    @Request() req: ExpressRequest,
+    @Request() req: Express.Request,
   ) {
     const user = req.user;
 
@@ -64,6 +66,7 @@ export class AttachmentsController {
     );
   }
 
+  @ApiOperation({ summary: 'Upload an avatar for the authenticated user' })
   @Post('users/avatar')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -72,7 +75,7 @@ export class AttachmentsController {
   )
   uploadAvatar(
     @UploadedFile() file: Express.Multer.File,
-    @Request() req: ExpressRequest,
+    @Request() req: Express.Request,
   ) {
     const user = req.user;
 
@@ -83,16 +86,19 @@ export class AttachmentsController {
     return this.attachmentsService.uploadAvatar(user['userId'], file);
   }
 
+  @ApiOperation({ summary: 'Get all attachments for a task' })
   @Get('tasks/:taskId/attachments')
   findAllForTask(@Param('taskId') taskId: string) {
     return this.attachmentsService.findAllForTask(taskId);
   }
 
+  @ApiOperation({ summary: 'Get download URL for an attachment' })
   @Get('attachments/:id/download')
   getDownloadUrl(@Param('id') id: string) {
     return this.attachmentsService.getDownloadUrl(id);
   }
 
+  @ApiOperation({ summary: 'Delete an attachment by ID' })
   @Delete('attachments/:id')
   remove(@Param('id') id: string) {
     return this.attachmentsService.remove(id);

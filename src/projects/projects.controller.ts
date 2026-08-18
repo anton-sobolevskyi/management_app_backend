@@ -20,30 +20,34 @@ import { ProjectResponseDto } from './dto/project-response.dto';
 @UseGuards(JwtAuthGuard)
 @Controller('projects')
 export class ProjectsController {
-  constructor(private projectsService: ProjectsService) {}
+  constructor(private projectsService: ProjectsService) { }
 
   @Post()
+  @ApiOperation({ summary: 'Create a new project' })
   create(@Body() dto: CreateProjectDto, @Request() req: ExpressRequest) {
     return this.projectsService.create(dto, req.user!['userId']);
   }
 
   @ApiOkResponse({ type: [ProjectResponseDto] })
   @Get()
+  @ApiOperation({ summary: 'Retrieve a list of all projects' })
   findAll(@Request() req: ExpressRequest) {
     return this.projectsService.findAll(req.user!['userId']);
   }
 
   @Get(':id')
+  @ApiOperation({ summary: 'Retrieve a single project' })
   findOne(@Param('id') id: string) {
     return this.projectsService.findOne(id);
   }
 
-  @ApiOperation({ summary: 'Update project by ID' })
+  @ApiOperation({ summary: 'Update a project by ID' })
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateProjectDto) {
     return this.projectsService.update(id, dto);
   }
 
+  @ApiOperation({ summary: 'Delete a project by ID (soft delete)' })
   @Delete(':id')
   softDelete(@Param('id') id: string) {
     return this.projectsService.softDelete(id);

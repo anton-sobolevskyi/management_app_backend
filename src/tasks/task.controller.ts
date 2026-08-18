@@ -16,7 +16,7 @@ import { TaskResponseDto } from './dto/task-response.dto';
 @UseGuards(JwtAuthGuard)
 @Controller('tasks')
 export class TaskController {
-  constructor(private tasksService: TasksService) {}
+  constructor(private tasksService: TasksService) { }
 
   @ApiOperation({ summary: 'Get a task by ID' })
   @ApiResponse({ status: 200, type: TaskResponseDto })
@@ -26,6 +26,7 @@ export class TaskController {
     return this.tasksService.findOne(id);
   }
 
+  @ApiOperation({ summary: 'Update a task' })
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateTaskDto) {
     return this.tasksService.update(id, dto);

@@ -12,12 +12,14 @@ import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { Request as ExpressRequest } from 'express';
+import { ApiOperation } from '@nestjs/swagger';
 
 @UseGuards(JwtAuthGuard)
 @Controller('projects/:projectId/tasks')
 export class TasksController {
-  constructor(private tasksService: TasksService) {}
+  constructor(private tasksService: TasksService) { }
 
+  @ApiOperation({ summary: 'Create a new task in a project' })
   @Post()
   create(
     @Param('projectId') projectId: string,
@@ -27,6 +29,7 @@ export class TasksController {
     return this.tasksService.create(projectId, dto, req.user!['userId']);
   }
 
+  @ApiOperation({ summary: 'Get all tasks in a project' })
   @Get()
   findAll(
     @Param('projectId') projectId: string,

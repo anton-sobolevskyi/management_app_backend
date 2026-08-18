@@ -64,6 +64,7 @@ export class AuthController {
     return { accessToken };
   }
 
+  @ApiOperation({ summary: 'Refresh access token using refresh token' })
   @Post('refresh')
   async refresh(
     @Request() req: ExpressRequest,
@@ -81,6 +82,7 @@ export class AuthController {
     return { accessToken };
   }
 
+  @ApiOperation({ summary: 'Logout and clear refresh token' })
   @Post('logout')
   async logout(
     @Request() req: ExpressRequest,
