@@ -10,9 +10,10 @@ import {
 import { TasksService } from './tasks.service';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
-import { ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { TaskResponseDto } from './dto/task-response.dto';
 
+@ApiTags('tasks')
 @UseGuards(JwtAuthGuard)
 @Controller('tasks')
 export class TaskController {

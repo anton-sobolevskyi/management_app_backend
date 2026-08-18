@@ -12,8 +12,9 @@ import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { Request as ExpressRequest } from 'express';
-import { ApiOperation } from '@nestjs/swagger';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
 
+@ApiTags('tasks')
 @UseGuards(JwtAuthGuard)
 @Controller('projects/:projectId/tasks')
 export class TasksController {
