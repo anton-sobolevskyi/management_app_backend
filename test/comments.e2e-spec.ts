@@ -1,8 +1,6 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { AppModule } from '../src/app.module';
-import { getAuthToken } from './test-utils';
+import { createTestApp, getAuthToken } from './test-utils';
 
 describe('Comments (e2e)', () => {
   let app: INestApplication;
@@ -11,13 +9,7 @@ describe('Comments (e2e)', () => {
   let commentId: string;
 
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication();
-    await app.init();
-
+    app = await createTestApp();
     accessToken = await getAuthToken(app);
     
     // Setup: Need a project and task first
@@ -62,5 +54,9 @@ describe('Comments (e2e)', () => {
       .delete(`/comments/${commentId}`)
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
+  });
+
+  afterAll(async () => {
+    await app.close();
   });
 });

@@ -1,8 +1,6 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { AppModule } from '../src/app.module';
-import { getAuthToken } from './test-utils';
+import { createTestApp, getAuthToken } from './test-utils';
 
 describe('Users (e2e)', () => {
   let app: INestApplication;
@@ -10,13 +8,7 @@ describe('Users (e2e)', () => {
   let userId: string;
 
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication();
-    await app.init();
-
+    app = await createTestApp();
     accessToken = await getAuthToken(app);
     // Extract userId from token or fetch current user
     const res = await request(app.getHttpServer())
