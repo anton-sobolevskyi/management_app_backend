@@ -6,9 +6,9 @@ node = "24"
 dev = { description = "Start the development server", run = "npm run start:dev" }
 
 # Database Management
-db:up = { description = "Start database containers", run = "docker compose up -d" }
-db:down = { description = "Stop database containers", run = "docker compose down" }
-db:setup = { description = "Start DB, generate client, run migrations, and seed", run = [
+db-up = { description = "Start database containers", run = "docker compose up -d" }
+db-down = { description = "Stop database containers", run = "docker compose down" }
+db-setup = { description = "Start DB, generate client, run migrations, and seed", run = [
   "docker compose up -d",
   "sleep 5",
   "npm run db:generate",
