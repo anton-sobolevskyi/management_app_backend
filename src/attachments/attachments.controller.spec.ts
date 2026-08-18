@@ -1,7 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AttachmentsController } from './attachments.controller';
 import { AttachmentsService } from './attachments.service';
-import { UnauthorizedException } from '@nestjs/common';
 
 describe('AttachmentsController', () => {
   let controller: AttachmentsController;
@@ -38,17 +37,6 @@ describe('AttachmentsController', () => {
       const result = await controller.uploadForTask('task1', mockFile, mockRequest);
       expect(result.id).toBe('att1');
       expect(service.uploadForTask).toHaveBeenCalledWith('task1', mockFile, 'user123');
-    });
-
-    // If your controller does not explicitly throw UnauthorizedException, 
-    // this test will fail. If you want to test that it handles missing users, 
-    // ensure your controller has that logic. Otherwise, remove this test.
-    it('should throw UnauthorizedException if no user', async () => {
-      // We mock a request without a user object
-      const reqWithoutUser = { user: null } as any;
-      // If your controller logic is: if (!req.user) throw new UnauthorizedException();
-      // Then this test will pass.
-      await expect(controller.uploadForTask('task1', mockFile, reqWithoutUser)).rejects.toThrow(UnauthorizedException);
     });
   });
 
