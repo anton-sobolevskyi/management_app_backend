@@ -5,6 +5,8 @@ import { JwtService } from '@nestjs/jwt';
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 
+jest.mock('bcrypt');
+
 describe('AuthService', () => {
   let service: AuthService;
   let prisma: PrismaService;
@@ -41,7 +43,7 @@ describe('AuthService', () => {
 
     it('should create user and return tokens', async () => {
       jest.spyOn(prisma.user, 'findUnique').mockResolvedValue(null);
-      jest.spyOn(bcrypt, 'hash').mockResolvedValue('hashedPassword' as any);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashedPassword' as any);
       jest.spyOn(prisma.user, 'create').mockResolvedValue({ id: '1', email: 'test@test.com' } as any);
       jest.spyOn(jwtService, 'sign').mockReturnValue('token');
       jest.spyOn(prisma.refreshToken, 'create').mockResolvedValue({} as any);
@@ -55,7 +57,7 @@ describe('AuthService', () => {
     it('should return user if credentials valid', async () => {
       const user = { id: '1', email: 'test@test.com', passwordHash: 'hash' };
       jest.spyOn(prisma.user, 'findUnique').mockResolvedValue(user as any);
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as any);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true as any);
 
       const result = await service.validateUser('test@test.com', 'password');
       expect(result).toEqual({ id: '1', email: 'test@test.com' });
