@@ -13,12 +13,12 @@ db-setup = { description = "Start DB, generate client, run migrations, and seed"
   "sleep 5",
   "npm run db:generate",
   "npm run db:migrate",
-  "npm run db:seed"
+  "npm run db:seed",
 ] }
-db-test = {
-  description = "Prepare test database",
-  run = [
-    "npm run db:generate",
-    "npm run db:migrate",
-  ]
-}
+db-test = { description = "Prepare test database", run = [
+  "npm run db:generate",
+  "npm run db:migrate",
+] }
+test-e2e = { description = "Prepare test database", run = [
+  "NODE_OPTIONS=--experimental-vm-modules npm run test:e2e",
+] }

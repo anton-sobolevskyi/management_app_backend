@@ -1,6 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { createTestApp, getAuthToken } from './test-utils';
+import { createTestApp, getAuthToken } from './helpers';
 
 describe('Attachments (e2e)', () => {
   let app: INestApplication;

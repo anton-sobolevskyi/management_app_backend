@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { AppModule } from '../src/app.module';
+import { AppModule } from '../../src/app.module';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 
@@ -22,14 +22,9 @@ export async function getAuthToken(
   password = 'password123',
 ): Promise<string> {
   // Register a new user
-  await request(app.getHttpServer())
+  const { body: { accessToken } } = await request(app.getHttpServer())
     .post('/auth/register')
     .send({ email, password, name: 'Test User' });
 
-  // Login to get the token
-  const loginRes = await request(app.getHttpServer())
-    .post('/auth/login')
-    .send({ email, password });
-
-  return loginRes.body.accessToken;
+  return accessToken;
 }

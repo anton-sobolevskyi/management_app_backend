@@ -17,7 +17,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:e2e": "jest --config ./test/config/jest-e2e.json",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
@@ -119,7 +119,8 @@
     "@prisma/engines@7.9.1": true,
     "prisma@7.9.1": true,
     "protobufjs@7.6.5": true,
-    "ssh2@1.17.0": true
+    "ssh2@1.17.0": true,
+    "cpu-features@0.0.10": true
   },
   "lint-staged": {
     "*.ts": [

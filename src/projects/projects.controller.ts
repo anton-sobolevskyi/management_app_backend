@@ -25,6 +25,7 @@ export class ProjectsController {
   @Post()
   @ApiOperation({ summary: 'Create a new project' })
   create(@Body() dto: CreateProjectDto, @Request() req: ExpressRequest) {
+    console.log('Creating project with DTO:', dto, 'for user:', req.user);
     return this.projectsService.create(dto, req.user!['userId']);
   }
 
