@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
+import { getAuthToken } from './test-utils';
 
 describe('Projects (e2e)', () => {
   let app: INestApplication;
@@ -15,10 +16,7 @@ describe('Projects (e2e)', () => {
     app = moduleFixture.createNestApplication();
     await app.init();
 
-    const loginRes = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ email: 'alice@example.com', password: 'password123' });
-    accessToken = loginRes.body.accessToken;
+    accessToken = await getAuthToken(app);
   });
 
   afterAll(async () => {
