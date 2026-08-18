@@ -22,7 +22,7 @@ describe('CommentsController', () => {
 
   it('should call service.create with correct params', async () => {
     const dto = { content: 'New comment' };
-    const req = { user: { id: 'user-1' } } as any;
+    const req = { user: { userId: 'user-1' } } as any;
 
     await controller.create('task-1', dto as any, req);
 

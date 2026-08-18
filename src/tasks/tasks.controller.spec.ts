@@ -22,7 +22,7 @@ describe('TasksController', () => {
 
   it('should call service.create with correct params', async () => {
     const dto = { title: 'New Task' } as any;
-    const req = { user: { id: 'user-1' } } as any;
+    const req = { user: { userId: 'user-1' } } as any;
     
     await controller.create('proj-1', dto, req);
     

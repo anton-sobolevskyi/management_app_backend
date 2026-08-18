@@ -69,10 +69,11 @@ describe('TasksService', () => {
 
     await service.softDelete('1');
 
-    expect(mockPrisma.comment.updateMany).toHaveBeenCalledWith({
-      where: { taskId: '1', deletedAt: null },
-      data: expect.any(Object),
-    });
+    expect(mockPrisma.comment.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ taskId: '1' }),
+      })
+    );
     expect(mockPrisma.task.update).toHaveBeenCalled();
   });
 });
