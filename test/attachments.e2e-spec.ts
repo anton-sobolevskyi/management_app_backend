@@ -12,12 +12,21 @@ describe('Attachments (e2e)', () => {
   beforeAll(async () => {
     app = await createTestApp();
     accessToken = await getAuthToken(app);
-    
+
     // Setup: Project -> Task -> Comment
-    const proj = await request(app.getHttpServer()).post('/projects').set('Authorization', `Bearer ${accessToken}`).send({ name: 'P' });
-    const task = await request(app.getHttpServer()).post(`/projects/${proj.body.id}/tasks`).set('Authorization', `Bearer ${accessToken}`).send({ title: 'T' });
+    const proj = await request(app.getHttpServer())
+      .post('/projects')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ name: 'P' });
+    const task = await request(app.getHttpServer())
+      .post(`/projects/${proj.body.id}/tasks`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ title: 'T' });
     taskId = task.body.id;
-    const comm = await request(app.getHttpServer()).post(`/tasks/${taskId}/comments`).set('Authorization', `Bearer ${accessToken}`).send({ content: 'C' });
+    const comm = await request(app.getHttpServer())
+      .post(`/tasks/${taskId}/comments`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ content: 'C' });
     commentId = comm.body.id;
   });
 

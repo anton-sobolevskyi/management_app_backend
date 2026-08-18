@@ -38,6 +38,7 @@ describe('Auth (e2e)', () => {
       .expect(200)
       .expect((res) => {
         expect(res.body).toHaveProperty('accessToken');
+        expect(res.headers['set-cookie'][0]).toContain('refreshToken');
       });
   });
 });

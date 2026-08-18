@@ -9,5 +9,6 @@
   "moduleNameMapper": {
     "^(\\.{1,2}/.*)\\.js$": "$1"
   },
+  "setupFiles": ["<rootDir>/test/docker-env.ts"],
   "setupFilesAfterEnv": ["<rootDir>/test/e2e.setup.ts"]
 }

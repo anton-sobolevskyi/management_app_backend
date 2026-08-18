@@ -11,10 +11,16 @@ describe('Comments (e2e)', () => {
   beforeAll(async () => {
     app = await createTestApp();
     accessToken = await getAuthToken(app);
-    
+
     // Setup: Need a project and task first
-    const proj = await request(app.getHttpServer()).post('/projects').set('Authorization', `Bearer ${accessToken}`).send({ name: 'P' });
-    const task = await request(app.getHttpServer()).post(`/projects/${proj.body.id}/tasks`).set('Authorization', `Bearer ${accessToken}`).send({ title: 'T' });
+    const proj = await request(app.getHttpServer())
+      .post('/projects')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ name: 'P' });
+    const task = await request(app.getHttpServer())
+      .post(`/projects/${proj.body.id}/tasks`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ title: 'T' });
     taskId = task.body.id;
   });
 
