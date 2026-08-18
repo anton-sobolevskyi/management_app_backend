@@ -13,10 +13,14 @@ beforeAll(async () => {
     .withPassword('test_password')
     .start();
 
-  process.env.DATABASE_URL = postgresContainer.getConnectionUri();
+  const dbUrl = postgresContainer.getConnectionUri();
+  process.env.DATABASE_URL = dbUrl;
 
   // Run migrations against the containerized database
-  execSync('npm run db:generate && npm run db:migrate && npm run db:seed');
+  // We pass the DATABASE_URL explicitly to the environment of the child process
+  execSync('npx prisma migrate deploy', {
+    env: { ...process.env, DATABASE_URL: dbUrl },
+  });
 });
 
 afterAll(async () => {
