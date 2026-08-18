@@ -11,6 +11,10 @@ describe('TasksService', () => {
     task: {
       create: jest.fn(),
       findFirst: jest.fn(),
+      update: jest.fn(),
+    },
+    comment: {
+      updateMany: jest.fn(),
     },
   };
 
@@ -39,5 +43,36 @@ describe('TasksService', () => {
   it('should throw NotFoundException if task not found', async () => {
     mockPrisma.task.findFirst.mockResolvedValue(null);
     await expect(service.findOne('invalid-id')).rejects.toThrow(NotFoundException);
+  });
+
+  it('should update a task', async () => {
+    const dto = { title: 'Updated Title' };
+    const mockTask = { id: '1', title: 'Updated Title' };
+    
+    // Mock findOne (findFirst) to succeed
+    mockPrisma.task.findFirst.mockResolvedValue({ id: '1' });
+    mockPrisma.task.update.mockResolvedValue(mockTask);
+
+    const result = await service.update('1', dto);
+    
+    expect(result).toEqual(mockTask);
+    expect(mockPrisma.task.update).toHaveBeenCalledWith({
+      where: { id: '1' },
+      data: expect.objectContaining(dto),
+    });
+  });
+
+  it('should soft delete a task and its comments', async () => {
+    mockPrisma.task.findFirst.mockResolvedValue({ id: '1' });
+    mockPrisma.comment.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.task.update.mockResolvedValue({ id: '1', deletedAt: new Date() });
+
+    await service.softDelete('1');
+
+    expect(mockPrisma.comment.updateMany).toHaveBeenCalledWith({
+      where: { taskId: '1', deletedAt: null },
+      data: expect.any(Object),
+    });
+    expect(mockPrisma.task.update).toHaveBeenCalled();
   });
 });
