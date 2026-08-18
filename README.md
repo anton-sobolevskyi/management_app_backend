@@ -26,8 +26,8 @@ A robust, modular project management backend API built with **NestJS**, **Prisma
 ### Prerequisites
 
 - Node.js (v20+ recommended)
-- PostgreSQL
-- S3-compatible storage (e.g., AWS S3, MinIO)
+- Docker & Docker Compose
+- [mise](https://mise.jdx.dev/) (recommended for task orchestration)
 
 ### Installation
 
@@ -42,25 +42,31 @@ A robust, modular project management backend API built with **NestJS**, **Prisma
    ```
    *Update the values in `.env` to match your local development environment.*
 
-3. Run database migrations to set up the schema:
+3. Initialize the database and start the development server:
    ```bash
-   npm run db:migrate
+   mise run db-setup
+   mise run dev
    ```
 
-4. Start the development server:
-   ```bash
-   npm run start:dev
-   ```
+## Development Workflow
 
-## Available Scripts
+This project uses [mise](https://mise.jdx.dev/) to simplify common development tasks.
 
+### Mise Tasks
+- `mise run dev`: Starts the development server.
+- `mise run db-up`: Starts the database containers.
+- `mise run db-down`: Stops the database containers.
+- `mise run db-setup`: Full database initialization (starts containers, generates client, runs migrations, and seeds).
+
+### NPM Scripts
+If you prefer using npm directly:
 - `npm run start:dev`: Starts the application in watch mode.
 - `npm run build`: Builds the application for production.
-- `npm run db:migrate`: Runs Prisma migrations.
 - `npm run db:generate`: Generates the Prisma client.
-- `npm run lint`: Runs ESLint to check code quality.
-- `npm run test`: Runs unit tests with Jest.
-- `npm run test:e2e`: Runs end-to-end tests.
+- `npm run db:migrate`: Runs Prisma migrations.
+- `npm run db:seed`: Runs database seeding.
+- `npm run lint`: Runs ESLint.
+- `npm run test`: Runs unit tests.
 
 ## API Documentation
 
