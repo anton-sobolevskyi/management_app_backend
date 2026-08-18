@@ -21,7 +21,7 @@ describe('CommentController', () => {
   });
 
   it('should call service.findOne', async () => {
-    const mockComment = { id: 'c1', content: 'Hello' };
+    const mockComment = { id: 'c1', content: 'Hey' };
     mockCommentsService.findOne.mockResolvedValue(mockComment);
 
     const result = await controller.findOne('c1');
