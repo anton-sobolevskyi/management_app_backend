@@ -40,8 +40,15 @@ describe('AttachmentsController', () => {
       expect(service.uploadForTask).toHaveBeenCalledWith('task1', mockFile, 'user123');
     });
 
+    // If your controller does not explicitly throw UnauthorizedException, 
+    // this test will fail. If you want to test that it handles missing users, 
+    // ensure your controller has that logic. Otherwise, remove this test.
     it('should throw UnauthorizedException if no user', async () => {
-      await expect(controller.uploadForTask('task1', mockFile, {} as any)).rejects.toThrow(UnauthorizedException);
+      // We mock a request without a user object
+      const reqWithoutUser = { user: null } as any;
+      // If your controller logic is: if (!req.user) throw new UnauthorizedException();
+      // Then this test will pass.
+      await expect(controller.uploadForTask('task1', mockFile, reqWithoutUser)).rejects.toThrow(UnauthorizedException);
     });
   });
 
@@ -73,7 +80,7 @@ describe('AttachmentsController', () => {
 
   describe('getDownloadUrl', () => {
     it('should call service.getDownloadUrl', async () => {
-      jest.spyOn(service, 'getDownloadUrl').mockResolvedValue({ url: 'http://url', fileName: 'test.jpg', mimeType: 'image/jpeg' });
+      jest.spyOn(service, 'getDownloadUrl').mockResolvedValue({ url: 'http://url', fileName: 'test.jpg', mimeType: 'image/jpeg' } as any);
       await controller.getDownloadUrl('att1');
       expect(service.getDownloadUrl).toHaveBeenCalledWith('att1');
     });
