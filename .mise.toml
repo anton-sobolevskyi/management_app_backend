@@ -1,0 +1,18 @@
+# .mise.toml
+
+[tools]
+node = "22"
+
+[tasks]
+# Initialize the project environment
+init = { description = "Install dependencies, setup .env, and generate Prisma client", run = [
+  "npm install",
+  "test -f .env || cp .env.example .env",
+  "npm run db:generate"
+] }
+
+# Run the development server
+run = { description = "Start the development server", run = "npm run start:dev" }
+
+# Build the project
+build = { description = "Build the project for production", run = "npm run build" }
