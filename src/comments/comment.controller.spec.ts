@@ -8,7 +8,16 @@ describe('CommentController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [CommentController],
-      providers: [{ provide: CommentsService, useValue: {} }]
+      providers: [
+        { 
+          provide: CommentsService, 
+          useValue: { 
+            findOne: jest.fn(), 
+            update: jest.fn(), 
+            softDelete: jest.fn() 
+          } 
+        }
+      ]
     }).compile();
 
     controller = module.get<CommentController>(CommentController);
