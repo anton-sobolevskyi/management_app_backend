@@ -20,12 +20,11 @@ import { ProjectResponseDto } from './dto/project-response.dto';
 @UseGuards(JwtAuthGuard)
 @Controller('projects')
 export class ProjectsController {
-  constructor(private projectsService: ProjectsService) { }
+  constructor(private projectsService: ProjectsService) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a new project' })
   create(@Body() dto: CreateProjectDto, @Request() req: ExpressRequest) {
-    console.log('Creating project with DTO:', dto, 'for user:', req.user);
     return this.projectsService.create(dto, req.user!['userId']);
   }
 

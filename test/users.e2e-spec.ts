@@ -1,8 +1,9 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { createTestApp, getAuthToken } from './helpers';
+import { UserResponseDto } from '../src/users/dto/user-response.dto';
 
-describe.skip('Users (e2e)', () => {
+describe('Users (e2e)', () => {
   let app: INestApplication;
   let accessToken: string;
   let userId: string;
@@ -11,7 +12,7 @@ describe.skip('Users (e2e)', () => {
     app = await createTestApp();
     accessToken = await getAuthToken(app);
     // Extract userId from token or fetch current user
-    const res = await request(app.getHttpServer())
+    const res: { body: UserResponseDto[] } = await request(app.getHttpServer())
       .get('/users')
       .set('Authorization', `Bearer ${accessToken}`);
     userId = res.body[0].id;

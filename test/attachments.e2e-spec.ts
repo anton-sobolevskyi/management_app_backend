@@ -1,6 +1,10 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { createTestApp, getAuthToken } from './helpers';
+import { ProjectResponseDto } from '../src/projects/dto/project-response.dto';
+import { TaskResponseDto } from '../src/tasks/dto/task-response.dto';
+import { CommentResponseDto } from '../src/comments/dto/comment-response.dto';
+import { AttachmentResponseDto } from 'src/attachments/dto/attachment-response.dto';
 
 describe('Attachments (e2e)', () => {
   let app: INestApplication;
@@ -14,24 +18,30 @@ describe('Attachments (e2e)', () => {
     accessToken = await getAuthToken(app);
 
     // Setup: Project -> Task -> Comment
-    const proj = await request(app.getHttpServer())
+    const proj: { body: ProjectResponseDto } = await request(
+      app.getHttpServer(),
+    )
       .post('/projects')
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ name: 'P' });
-    const task = await request(app.getHttpServer())
+      .send({ name: 'Project' });
+    const task: { body: TaskResponseDto } = await request(app.getHttpServer())
       .post(`/projects/${proj.body.id}/tasks`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ title: 'T' });
+      .send({ title: 'Task' });
     taskId = task.body.id;
-    const comm = await request(app.getHttpServer())
+    const comm: { body: CommentResponseDto } = await request(
+      app.getHttpServer(),
+    )
       .post(`/tasks/${taskId}/comments`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ content: 'C' });
+      .send({ content: 'Comment' });
     commentId = comm.body.id;
   });
 
   it('POST /tasks/:taskId/attachments', async () => {
-    const res = await request(app.getHttpServer())
+    const res: { body: AttachmentResponseDto } = await request(
+      app.getHttpServer(),
+    )
       .post(`/tasks/${taskId}/attachments`)
       .set('Authorization', `Bearer ${accessToken}`)
       .attach('file', Buffer.from('test'), 'test.txt')

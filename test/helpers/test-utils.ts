@@ -3,6 +3,9 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { AppModule } from '../../src/app.module';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
+import { AuthResponseDto } from '../../src/auth/dto/auth-response.dto';
+
+let accessTokenCache: string | null = null;
 
 export async function createTestApp(): Promise<INestApplication> {
   const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -21,10 +24,15 @@ export async function getAuthToken(
   email = `test-${Date.now()}@example.com`,
   password = 'password123',
 ): Promise<string> {
-  // Register a new user
-  const { body: { accessToken } } = await request(app.getHttpServer())
+  if (accessTokenCache) {
+    return accessTokenCache;
+  }
+
+  const user: { body: AuthResponseDto } = await request(app.getHttpServer())
     .post('/auth/register')
     .send({ email, password, name: 'Test User' });
 
-  return accessToken;
+  accessTokenCache = user.body.accessToken;
+
+  return accessTokenCache;
 }

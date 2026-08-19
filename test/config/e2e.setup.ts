@@ -1,16 +1,18 @@
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import {
+  PostgreSqlContainer,
+  StartedPostgreSqlContainer,
+} from '@testcontainers/postgresql';
 import { execSync } from 'child_process';
 import { config } from 'dotenv';
 import { resolve } from 'path';
 
 config({ path: resolve(__dirname, '../.env.test'), override: true });
 
-let postgresContainer: any;
+let postgresContainer: StartedPostgreSqlContainer;
 
 jest.setTimeout(60000);
 
 beforeAll(async () => {
-  console.log('RUUUUUUUUUN');
   postgresContainer = await new PostgreSqlContainer('postgres:16-alpine')
     .withDatabase('test_db')
     .withUsername('test_user')

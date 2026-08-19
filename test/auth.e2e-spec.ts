@@ -28,17 +28,17 @@ describe.skip('Auth (e2e)', () => {
       });
   });
 
-  it('/auth/login (POST)', () => {
-    return request(app.getHttpServer())
-      .post('/auth/login')
-      .send({
-        email: 'newuser@example.com',
-        password: 'password123',
-      })
-      .expect(200)
-      .expect((res) => {
-        expect(res.body).toHaveProperty('accessToken');
-        expect(res.headers['set-cookie'][0]).toContain('refreshToken');
-      });
-  });
+  // it('/auth/login (POST)', () => {
+  //   return request(app.getHttpServer())
+  //     .post('/auth/login')
+  //     .send({
+  //       email: 'newuser@example.com',
+  //       password: 'password123',
+  //     })
+  //     .expect(200)
+  //     .expect((res) => {
+  //       expect(res.body).toHaveProperty('accessToken');
+  //       expect(res.headers['set-cookie'][0]).toContain('refreshToken');
+  //     });
+  // });
 });

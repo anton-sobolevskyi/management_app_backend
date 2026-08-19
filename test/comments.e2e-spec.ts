@@ -1,8 +1,11 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { createTestApp, getAuthToken } from './helpers';
+import { ProjectResponseDto } from 'src/projects/dto/project-response.dto';
+import { TaskResponseDto } from 'src/tasks/dto/task-response.dto';
+import { CommentResponseDto } from 'src/comments/dto/comment-response.dto';
 
-describe.skip('Comments (e2e)', () => {
+describe('Comments (e2e)', () => {
   let app: INestApplication;
   let accessToken: string;
   let taskId: string;
@@ -13,19 +16,21 @@ describe.skip('Comments (e2e)', () => {
     accessToken = await getAuthToken(app);
 
     // Setup: Need a project and task first
-    const proj = await request(app.getHttpServer())
+    const proj: { body: ProjectResponseDto } = await request(
+      app.getHttpServer(),
+    )
       .post('/projects')
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ name: 'P' });
-    const task = await request(app.getHttpServer())
+      .send({ name: 'Project' });
+    const task: { body: TaskResponseDto } = await request(app.getHttpServer())
       .post(`/projects/${proj.body.id}/tasks`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ title: 'T' });
+      .send({ title: 'Task' });
     taskId = task.body.id;
   });
 
   it('POST /tasks/:taskId/comments', async () => {
-    const res = await request(app.getHttpServer())
+    const res: { body: CommentResponseDto } = await request(app.getHttpServer())
       .post(`/tasks/${taskId}/comments`)
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ content: 'New Comment' })

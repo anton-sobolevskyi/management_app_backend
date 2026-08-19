@@ -1,8 +1,9 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { createTestApp, getAuthToken } from './helpers';
+import { ProjectResponseDto } from '../src/projects/dto/project-response.dto';
 
-describe.skip('Projects (e2e)', () => {
+describe('Projects (e2e)', () => {
   let app: INestApplication;
   let accessToken: string;
   let projectId: string;
@@ -17,7 +18,7 @@ describe.skip('Projects (e2e)', () => {
   });
 
   it('POST /projects', async () => {
-    const res = await request(app.getHttpServer())
+    const res: { body: ProjectResponseDto } = await request(app.getHttpServer())
       .post('/projects')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ name: 'New Project', description: 'Test Description' })

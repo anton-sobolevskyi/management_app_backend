@@ -155,8 +155,8 @@ export class AttachmentsService {
   async getDownloadUrl(id: string): Promise<DownloadUrlResponseDto> {
     const attachment = await this.findOne(id);
     const url = await this.s3Service.getPresignedUrl(
-      attachment['s3Key'],
       attachment['s3Bucket'] ?? '',
+      attachment['s3Key'],
     );
 
     return {
