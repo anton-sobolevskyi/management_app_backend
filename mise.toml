@@ -5,6 +5,12 @@ node = "24"
 # Development
 dev = { description = "Start the development server", run = "npm run start:dev" }
 
+# Testing
+test = { description = "Run unit tests", run = "npm test" }
+test-e2e = { description = "Run e2e tests (spins up Postgres via testcontainers)", run = [
+  "NODE_OPTIONS=--experimental-vm-modules npm run test:e2e",
+] }
+
 # Database Management
 db-up = { description = "Start database containers", run = "docker compose up -d" }
 db-down = { description = "Stop database containers", run = "docker compose down" }
@@ -18,7 +24,4 @@ db-setup = { description = "Start DB, generate client, run migrations, and seed"
 db-test = { description = "Prepare test database", run = [
   "npm run db:generate",
   "npm run db:migrate",
-] }
-test-e2e = { description = "Prepare test database", run = [
-  "NODE_OPTIONS=--experimental-vm-modules npm run test:e2e",
 ] }
