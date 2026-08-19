@@ -8,7 +8,7 @@ dev = { description = "Start the development server", run = "npm run start:dev" 
 # Testing
 test = { description = "Run unit tests", run = [
   "npm run db:generate",
-  "npm test",
+  "npm run test",
 ] }
 test-e2e = { description = "Run e2e tests (spins up Postgres via testcontainers)", run = [
   "NODE_OPTIONS=--experimental-vm-modules npm run test:e2e",
