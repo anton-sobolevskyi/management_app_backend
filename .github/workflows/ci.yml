@@ -21,7 +21,7 @@ jobs:
         run: npm ci
 
       - name: Run unit tests
-        run: mise run test
+        run: mise run test-unit
 
       # Testcontainers сам піднімає Postgres у Docker — runner вже має Docker,
       # тому окремого docker-compose кроку тут не потрібно
