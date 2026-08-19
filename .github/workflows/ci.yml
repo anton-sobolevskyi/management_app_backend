@@ -22,6 +22,8 @@ jobs:
 
       - name: Run unit tests
         run: mise run test-unit
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       # Testcontainers сам піднімає Postgres у Docker — runner вже має Docker,
       # тому окремого docker-compose кроку тут не потрібно
@@ -35,4 +37,3 @@ jobs:
           AWS_S3_ENDPOINT: ${{ secrets.AWS_S3_ENDPOINT }}
           JWT_ACCESS_SECRET: ${{ secrets.JWT_ACCESS_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
