@@ -6,14 +6,10 @@ describe('TaskController', () => {
   let controller: TaskController;
   let service: TasksService;
 
-  const mockTasksService = {
-    findOne: jest.fn(),
-  };
-
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [TaskController],
-      providers: [{ provide: TasksService, useValue: mockTasksService }],
+      providers: [{ provide: TasksService, useValue: { findOne: jest.fn() } }],
     }).compile();
 
     controller = module.get<TaskController>(TaskController);
@@ -22,11 +18,13 @@ describe('TaskController', () => {
 
   it('should call service.findOne', async () => {
     const mockTask = { id: 'task-1', title: 'Task' };
-    mockTasksService.findOne.mockResolvedValue(mockTask);
+    const spy = jest
+      .spyOn(service, 'findOne')
+      .mockResolvedValue(mockTask as any);
 
     const result = await controller.findOne('task-1');
-    
-    expect(service.findOne).toHaveBeenCalledWith('task-1');
+
+    expect(spy).toHaveBeenCalledWith('task-1');
     expect(result).toEqual(mockTask);
   });
 });
