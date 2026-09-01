@@ -98,4 +98,8 @@ export class UsersService {
       },
     });
   }
+
+  async getMe(userId: string): Promise<UserResponseDto> {
+    return this.findOne(userId);
+  }
 }
