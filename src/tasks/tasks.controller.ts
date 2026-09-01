@@ -12,13 +12,14 @@ import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { Request as ExpressRequest } from 'express';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
-@ApiTags('tasks')
+@ApiTags('project tasks')
 @UseGuards(JwtAuthGuard)
+@ApiBearerAuth('access-token')
 @Controller('projects/:projectId/tasks')
 export class TasksController {
-  constructor(private tasksService: TasksService) { }
+  constructor(private tasksService: TasksService) {}
 
   @ApiOperation({ summary: 'Create a new task in a project' })
   @Post()

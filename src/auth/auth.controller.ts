@@ -15,7 +15,7 @@ import type {
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LocalAuthGuard } from './guards/local-auth.guard';
-import { ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { LoginDto } from './dto/login.dto';
 
@@ -24,7 +24,7 @@ const REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) { }
+  constructor(private authService: AuthService) {}
 
   @ApiOperation({ summary: 'Register a new user' })
   @ApiResponse({ status: 201, type: AuthResponseDto })
@@ -65,6 +65,7 @@ export class AuthController {
   }
 
   @ApiOperation({ summary: 'Refresh access token using refresh token' })
+  @ApiBearerAuth('access-token')
   @Post('refresh')
   async refresh(
     @Request() req: ExpressRequest,
@@ -83,6 +84,7 @@ export class AuthController {
   }
 
   @ApiOperation({ summary: 'Logout and clear refresh token' })
+  @ApiBearerAuth('access-token')
   @Post('logout')
   async logout(
     @Request() req: ExpressRequest,

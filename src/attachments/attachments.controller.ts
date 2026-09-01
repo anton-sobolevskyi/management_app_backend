@@ -13,12 +13,13 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AttachmentsService } from './attachments.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { ApiOperation } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 
 @UseGuards(JwtAuthGuard)
+@ApiBearerAuth('access-token')
 @Controller()
 export class AttachmentsController {
-  constructor(private attachmentsService: AttachmentsService) { }
+  constructor(private attachmentsService: AttachmentsService) {}
 
   @ApiOperation({ summary: 'Upload an attachment for a task' })
   @Post('tasks/:taskId/attachments')

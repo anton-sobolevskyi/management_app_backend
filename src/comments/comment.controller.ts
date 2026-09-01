@@ -10,12 +10,13 @@ import {
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CommentsService } from './comments.service';
 import { UpdateCommentDto } from './dto/update-comment.dto';
-import { ApiOperation } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 
 @UseGuards(JwtAuthGuard)
+@ApiBearerAuth('access-token')
 @Controller('comments')
 export class CommentController {
-  constructor(private commentsService: CommentsService) { }
+  constructor(private commentsService: CommentsService) {}
 
   @ApiOperation({ summary: 'Get a comment by ID' })
   @Get(':id')
