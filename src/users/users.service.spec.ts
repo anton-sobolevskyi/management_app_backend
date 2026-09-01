@@ -173,6 +173,23 @@ describe('UsersService', () => {
     });
   });
 
+  describe('getMe', () => {
+    it('should return user when found', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue(mockUserResponse);
+
+      const result = await service.getMe('user-1');
+
+      expect(service.findOne).toHaveBeenCalledWith('user-1');
+      expect(result).toEqual(mockUserResponse);
+    });
+
+    it('should throw NotFoundException if user not found', async () => {
+      jest.spyOn(service, 'findOne').mockRejectedValue(new NotFoundException());
+
+      await expect(service.getMe('user-1')).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('softDelete', () => {
     it('should set deletedAt and return updated user', async () => {
       jest.spyOn(service, 'findOne').mockResolvedValue(mockUserResponse);

@@ -25,6 +25,7 @@ describe('UsersController', () => {
             findAll: jest.fn(),
             findOne: jest.fn(),
             update: jest.fn(),
+            getMe: jest.fn(),
             softDelete: jest.fn(),
           },
         },
@@ -46,33 +47,39 @@ describe('UsersController', () => {
         password: 'password123',
         name: 'Test User',
       };
-      jest.spyOn(service, 'create').mockResolvedValue(mockUserResponse);
+      const spy = jest
+        .spyOn(service, 'create')
+        .mockResolvedValue(mockUserResponse);
 
       const result = await controller.create(dto);
 
-      expect(service.create).toHaveBeenCalledWith(dto);
+      expect(spy).toHaveBeenCalledWith(dto);
       expect(result).toEqual(mockUserResponse);
     });
   });
 
   describe('findAll', () => {
     it('should call service.findAll and return user list', async () => {
-      jest.spyOn(service, 'findAll').mockResolvedValue([mockUserResponse]);
+      const spy = jest
+        .spyOn(service, 'findAll')
+        .mockResolvedValue([mockUserResponse]);
 
       const result = await controller.findAll();
 
-      expect(service.findAll).toHaveBeenCalled();
+      expect(spy).toHaveBeenCalled();
       expect(result).toEqual([mockUserResponse]);
     });
   });
 
   describe('findOne', () => {
     it('should call service.findOne with id and return user', async () => {
-      jest.spyOn(service, 'findOne').mockResolvedValue(mockUserResponse);
+      const spy = jest
+        .spyOn(service, 'findOne')
+        .mockResolvedValue(mockUserResponse);
 
       const result = await controller.findOne('user-1');
 
-      expect(service.findOne).toHaveBeenCalledWith('user-1');
+      expect(spy).toHaveBeenCalledWith('user-1');
       expect(result).toEqual(mockUserResponse);
     });
   });
@@ -81,22 +88,40 @@ describe('UsersController', () => {
     it('should call service.update with id and dto', async () => {
       const updateDto = { name: 'Updated Name' };
       const updatedUser = { ...mockUserResponse, name: 'Updated Name' };
-      jest.spyOn(service, 'update').mockResolvedValue(updatedUser);
+      const spy = jest.spyOn(service, 'update').mockResolvedValue(updatedUser);
 
       const result = await controller.update('user-1', updateDto);
 
-      expect(service.update).toHaveBeenCalledWith('user-1', updateDto);
+      expect(spy).toHaveBeenCalledWith('user-1', updateDto);
       expect(result).toEqual(updatedUser);
+    });
+  });
+
+  describe('getMe', () => {
+    it('should call service.getMe with userId from request and return user', async () => {
+      const mockRequest = {
+        user: { userId: 'user-1', email: 'test@example.com' },
+      };
+      const spy = jest
+        .spyOn(service, 'getMe')
+        .mockResolvedValue(mockUserResponse);
+
+      const result = await controller.getMe(mockRequest as any);
+
+      expect(spy).toHaveBeenCalledWith('user-1');
+      expect(result).toEqual(mockUserResponse);
     });
   });
 
   describe('softDelete', () => {
     it('should call service.softDelete with id', async () => {
-      jest.spyOn(service, 'softDelete').mockResolvedValue(mockUserResponse);
+      const spy = jest
+        .spyOn(service, 'softDelete')
+        .mockResolvedValue(mockUserResponse);
 
       const result = await controller.softDelete('user-1');
 
-      expect(service.softDelete).toHaveBeenCalledWith('user-1');
+      expect(spy).toHaveBeenCalledWith('user-1');
       expect(result).toEqual(mockUserResponse);
     });
   });
