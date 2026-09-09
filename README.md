@@ -1,87 +1,156 @@
 # Management App API
 
-A robust, modular project management backend API built with **NestJS**, **Prisma ORM**, and **PostgreSQL**.
+Modular project management backend API for teams — projects, tasks, comments, and file attachments.
+
+## Goals / Purpose
+
+- Provide a clean, production-style REST API for a project management product
+- Demonstrate NestJS modular architecture with Prisma and PostgreSQL
+- Cover auth (JWT + refresh), roles, soft deletes, and S3 file handling
+- Serve as the backend for a management app frontend
 
 ## Features
 
-- **Authentication**: Secure JWT-based authentication with access/refresh token rotation.
-- **Project Management**: Hierarchical project structure with member roles.
-- **Task Management**: Full CRUD operations for tasks, including status tracking (`TODO`, `IN_PROGRESS`, `IN_REVIEW`, `DONE`) and priority levels.
-- **Collaboration**: Threaded comments on tasks.
-- **File Management**: S3-compatible storage integration for task attachments and user avatars.
-- **API Documentation**: Auto-generated Swagger/OpenAPI documentation available at `/api-docs`.
-- **Validation**: Strict request validation using `class-validator` and `class-transformer`.
+- JWT authentication with access/refresh token rotation
+- Projects with member roles (`OWNER`, `ADMIN`, `MEMBER`)
+- Tasks with status (`TODO`, `IN_PROGRESS`, `IN_REVIEW`, `DONE`) and priority
+- Task assignment, due dates, and soft deletes
+- Comments on tasks
+- File attachments (tasks, comments, user avatars) via S3-compatible storage
+- Swagger/OpenAPI docs at `/api-docs`
+- Request validation with `class-validator`
 
 ## Tech Stack
 
-- **Framework**: [NestJS](https://nestjs.com/)
-- **ORM**: [Prisma](https://www.prisma.io/)
-- **Database**: PostgreSQL
-- **Authentication**: Passport.js (JWT & Local strategies), bcrypt
-- **Storage**: AWS SDK v3 (S3)
-- **API Docs**: Swagger/OpenAPI
+| Layer        | Technology                          |
+|--------------|-------------------------------------|
+| Framework    | NestJS 11                           |
+| ORM          | Prisma 7                            |
+| Database     | PostgreSQL                          |
+| Auth         | Passport.js (JWT + Local), bcrypt   |
+| Storage      | AWS SDK v3 (S3-compatible)          |
+| API Docs     | Swagger / OpenAPI                   |
+| Validation   | class-validator, class-transformer  |
+| Tooling      | Docker Compose, mise, Husky         |
+| Language     | TypeScript                          |
+
+## Architecture Highlights
+
+- Feature-based NestJS modules (`auth`, `users`, `projects`, `tasks`, `comments`, `attachments`)
+- Soft deletes on core entities (`deletedAt`)
+- Refresh token storage and rotation
+- Presigned S3 URLs for uploads/downloads
+- E2E tests with Testcontainers (PostgreSQL)
+- CI via GitHub Actions; deploy config for Render (`render.yaml`)
+
+## Project Structure
+
+```
+src/
+├── auth/           # Register, login, JWT strategies, guards
+├── users/          # Profile and avatar
+├── projects/       # Projects and membership
+├── tasks/          # Task lifecycle
+├── comments/       # Task comments
+├── attachments/    # S3 uploads/downloads
+├── prisma/         # Prisma module/service
+├── s3/             # S3 client wrapper
+├── config/
+└── main.ts
+
+prisma/
+├── schema.prisma
+├── migrations/
+└── seed.ts
+```
 
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js (v20+ recommended)
+- Node.js 20+
 - Docker & Docker Compose
-- [mise](https://mise.jdx.dev/) (recommended for task orchestration)
+- [mise](https://mise.jdx.dev/) (recommended for tasks)
 
 ### Installation
 
-1. Clone the repository and install dependencies:
-   ```bash
-   npm install
-   ```
+```bash
+git clone https://github.com/anton-sobolevskyi/management_app_backend.git
+cd management_app_backend
+npm install
+cp .env.example .env
+```
 
-2. Configure your environment variables by copying `.env.example` to `.env`:
-   ```bash
-   cp .env.example .env
-   ```
-   *Update the values in `.env` to match your local development environment.*
+### Environment
 
-3. Initialize the database and start the development server:
-   ```bash
-   mise run db-setup
-   mise run dev
-   ```
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `JWT_ACCESS_SECRET` | Access token secret |
+| `JWT_REFRESH_SECRET` | Refresh token secret |
+| `JWT_EXPIRES_IN` | Access token TTL (e.g. `15m`) |
+| `REFRESH_TOKEN_EXPIRES_IN` | Refresh token TTL (e.g. `7d`) |
+| `AWS_REGION` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3 credentials |
+| `AWS_S3_BUCKET` / `AWS_S3_ENDPOINT` | Bucket and optional custom endpoint |
+| `FRONTEND_URL` | CORS origin |
 
-## Development Workflow
+### Development
 
-This project uses [mise](https://mise.jdx.dev/) to simplify common development tasks.
+```bash
+mise run db-setup   # start DB, generate client, migrate, seed
+mise run dev        # start API in watch mode
+# → http://localhost:3000
+# → Swagger: http://localhost:3000/api-docs
+```
 
-### Mise Tasks
-- `mise run dev`: Starts the development server.
-- `mise run db-up`: Starts the database containers.
-- `mise run db-down`: Stops the database containers.
-- `mise run db-setup`: Full database initialization (starts containers, generates client, runs migrations, and seeds).
+Without mise:
 
-### NPM Scripts
-If you prefer using npm directly:
-- `npm run start:dev`: Starts the application in watch mode.
-- `npm run build`: Builds the application for production.
-- `npm run db:generate`: Generates the Prisma client.
-- `npm run db:migrate`: Runs Prisma migrations.
-- `npm run db:seed`: Runs database seeding.
-- `npm run lint`: Runs ESLint.
-- `npm run test`: Runs unit tests.
+```bash
+docker compose up -d
+npm run db:generate
+npm run db:migrate
+npm run db:seed
+npm run start:dev
+```
 
-## API Documentation
+### Build & Production
 
-Once the server is running, the interactive API documentation is available at:
-`http://localhost:3000/api-docs`
+```bash
+npm run build
+npm run start:prod
+```
 
-## Project Structure
+### Tests
 
-The application is organized into feature-based modules:
+```bash
+npm test            # unit
+npm run test:e2e    # e2e (Testcontainers)
+```
 
-- `src/auth`: Handles registration, login, and JWT strategies.
-- `src/users`: User profile and avatar management.
-- `src/projects`: Project creation and membership management.
-- `src/tasks`: Task lifecycle management within projects.
-- `src/comments`: Commenting system for tasks.
-- `src/attachments`: File upload/download handling via S3.
-- `src/prisma`: Database connection service.
-- `src/s3`: S3 client wrapper service.
+## Scripts
+
+| Command | Description |
+|---------|-------------|
+| `mise run dev` | Start dev server |
+| `mise run db-up` / `db-down` | Start/stop Postgres containers |
+| `mise run db-setup` | Full DB init (up + generate + migrate + seed) |
+| `npm run start:dev` | Nest watch mode |
+| `npm run build` | Production build |
+| `npm run db:generate` | Prisma client |
+| `npm run db:migrate` | Run migrations |
+| `npm run db:seed` | Seed database |
+| `npm run db:studio` | Prisma Studio |
+| `npm run lint` | ESLint |
+| `npm test` / `npm run test:e2e` | Unit / e2e tests |
+
+## Key Implementation Details
+
+- **Roles:** `OWNER`, `ADMIN`, `MEMBER` on `ProjectMember`
+- **Task status:** `TODO` → `IN_PROGRESS` → `IN_REVIEW` → `DONE`
+- **Priority:** `LOW`, `MEDIUM`, `HIGH`, `URGENT`
+- **Attachments:** linked to tasks, comments, or user avatar; stored in S3
+- **Auth:** access JWT + refresh tokens persisted and rotatable
+
+## License
+
+Personal project. Free to use for learning purposes.
