@@ -1,13 +1,19 @@
 # Management App API
 
+[![API Docs](https://img.shields.io/badge/API-Swagger-85EA2D?logo=swagger)](https://management-app-backend-qs3u.onrender.com/api-docs)
+
 Modular project management backend API for teams — projects, tasks, comments, and file attachments.
+
+**Live API docs:** [management-app-backend-qs3u.onrender.com/api-docs](https://management-app-backend-qs3u.onrender.com/api-docs)
 
 ## Goals / Purpose
 
-- Provide a clean, production-style REST API for a project management product
-- Demonstrate NestJS modular architecture with Prisma and PostgreSQL
-- Cover auth (JWT + refresh), roles, soft deletes, and S3 file handling
-- Serve as the backend for a management app frontend
+Portfolio project built to demonstrate backend engineering skills relevant to job applications:
+
+- Production-style REST API with NestJS modular architecture
+- Auth (JWT + refresh rotation), roles, soft deletes, and S3 file handling
+- Prisma + PostgreSQL, Docker, CI, and deployable setup (Render)
+- Clear domain model for a real product (projects, tasks, collaboration)
 
 ## Features
 
@@ -32,6 +38,7 @@ Modular project management backend API for teams — projects, tasks, comments, 
 | API Docs     | Swagger / OpenAPI                   |
 | Validation   | class-validator, class-transformer  |
 | Tooling      | Docker Compose, mise, Husky         |
+| Deploy       | Render (`render.yaml`)              |
 | Language     | TypeScript                          |
 
 ## Architecture Highlights
@@ -41,7 +48,7 @@ Modular project management backend API for teams — projects, tasks, comments, 
 - Refresh token storage and rotation
 - Presigned S3 URLs for uploads/downloads
 - E2E tests with Testcontainers (PostgreSQL)
-- CI via GitHub Actions; deploy config for Render (`render.yaml`)
+- CI via GitHub Actions; deploy config for Render
 
 ## Project Structure
 
@@ -153,4 +160,4 @@ npm run test:e2e    # e2e (Testcontainers)
 
 ## License
 
-Personal project. Free to use for learning purposes.
+Portfolio project. Free to use for learning purposes.
