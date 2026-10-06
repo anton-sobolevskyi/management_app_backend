@@ -6,6 +6,8 @@ import { ProjectsModule } from './projects/projects.module';
 import { TasksModule } from './tasks/tasks.module';
 import { CommentsModule } from './comments/comments.module';
 import { AttachmentsModule } from './attachments/attachments.module';
+import { AppController } from './app/app.controller';
+import { AppService } from './app/app.service';
 
 @Module({
   imports: [
@@ -17,5 +19,7 @@ import { AttachmentsModule } from './attachments/attachments.module';
     CommentsModule,
     AttachmentsModule,
   ],
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule {}
