@@ -1,12 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuthorizationService } from '../common/authorization/authorization.service';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { UpdateCommentDto } from './dto/update-comment.dto';
 import { CommentResponseDto } from './dto/comment-response.dto';
 
 @Injectable()
 export class CommentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private authz: AuthorizationService,
+  ) {}
 
   async create(
     taskId: string,
@@ -49,8 +53,13 @@ export class CommentsService {
     return comment;
   }
 
-  async update(id: string, dto: UpdateCommentDto): Promise<CommentResponseDto> {
-    await this.findOne(id);
+  async update(
+    id: string,
+    dto: UpdateCommentDto,
+    userId: string,
+  ): Promise<CommentResponseDto> {
+    const comment = await this.authz.assertCommentAccess(userId, id);
+    await this.authz.assertCommentAuthorOrAdmin(userId, comment);
 
     return this.prisma.comment.update({
       where: { id },
@@ -58,8 +67,9 @@ export class CommentsService {
     });
   }
 
-  async softDelete(id: string): Promise<CommentResponseDto> {
-    await this.findOne(id);
+  async softDelete(id: string, userId: string): Promise<CommentResponseDto> {
+    const comment = await this.authz.assertCommentAccess(userId, id);
+    await this.authz.assertCommentAuthorOrAdmin(userId, comment);
 
     return this.prisma.comment.update({
       where: { id },

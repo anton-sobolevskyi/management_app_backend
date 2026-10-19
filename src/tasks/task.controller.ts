@@ -10,6 +10,9 @@ import {
 import { TasksService } from './tasks.service';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { ProjectMemberGuard } from '../common/authorization/project-member.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { Role } from '../generated/prisma/enums';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -19,7 +22,7 @@ import {
 import { TaskResponseDto } from './dto/task-response.dto';
 
 @ApiTags('tasks')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ProjectMemberGuard)
 @ApiBearerAuth('access-token')
 @Controller('tasks')
 export class TaskController {
@@ -41,6 +44,7 @@ export class TaskController {
 
   @ApiOperation({ summary: 'Soft delete a task' })
   @ApiResponse({ status: 200, type: TaskResponseDto })
+  @Roles(Role.OWNER, Role.ADMIN)
   @Delete(':id')
   softDelete(@Param('id') id: string) {
     return this.tasksService.softDelete(id);
