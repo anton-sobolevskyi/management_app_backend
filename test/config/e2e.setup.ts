@@ -17,18 +17,16 @@ beforeAll(async () => {
     .withDatabase('test_db')
     .withUsername('test_user')
     .withPassword('test_password')
-    // .withStartupTimeout(120_000) // wait longer if needed
-    // .withReuse() // reuse container between test runs (faster)
-    // .withCommand(['postgres', '-c', 'max_connections=200'])
     .start();
 
   const dbUrl = postgresContainer.getConnectionUri();
   process.env.DATABASE_URL = dbUrl;
 
-  // Run migrations against the containerized database
-  // We pass the DATABASE_URL explicitly to the environment of the child process
-  execSync('mise run db-test', {
+  // Migrate only — client is generated once before the Jest process starts
+  // (mise test-e2e / CI). Avoid concurrent prisma generate across workers.
+  execSync('npx prisma migrate deploy', {
     env: { ...process.env },
+    stdio: 'inherit',
   });
 });
 

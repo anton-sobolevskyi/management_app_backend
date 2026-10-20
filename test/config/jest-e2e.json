@@ -1,22 +1,15 @@
 {
-  "moduleFileExtensions": [
-    "js",
-    "json",
-    "ts"
-  ],
+  "moduleFileExtensions": ["js", "json", "ts"],
   "rootDir": "../..",
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
+  "maxWorkers": 1,
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   },
   "moduleNameMapper": {
     "^(\\.{1,2}/.*)\\.js$": "$1"
   },
-  "setupFiles": [
-    "<rootDir>/test/helpers/docker-env.ts"
-  ],
-  "setupFilesAfterEnv": [
-    "<rootDir>/test/config/e2e.setup.ts"
-  ]
+  "setupFiles": ["<rootDir>/test/helpers/docker-env.ts"],
+  "setupFilesAfterEnv": ["<rootDir>/test/config/e2e.setup.ts"]
 }
