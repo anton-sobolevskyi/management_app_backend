@@ -9,13 +9,21 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 
+const userSelect = {
+  id: true,
+  email: true,
+  name: true,
+  avatarId: true,
+  createdAt: true,
+} as const;
+
 @Injectable()
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
   async create(dto: CreateUserDto): Promise<UserResponseDto> {
-    const existing = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+    const existing = await this.prisma.user.findFirst({
+      where: { email: dto.email, deletedAt: null },
     });
     if (existing) {
       throw new ConflictException('Email already in use');
@@ -25,39 +33,14 @@ export class UsersService {
 
     return this.prisma.user.create({
       data: { email: dto.email, name: dto.name, passwordHash },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        avatarId: true,
-        createdAt: true,
-      },
-    });
-  }
-
-  async findAll(): Promise<UserResponseDto[]> {
-    return this.prisma.user.findMany({
-      where: { deletedAt: null },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        avatarId: true,
-        createdAt: true,
-      },
+      select: userSelect,
     });
   }
 
   async findOne(id: string): Promise<UserResponseDto> {
     const user = await this.prisma.user.findFirst({
       where: { id, deletedAt: null },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        avatarId: true,
-        createdAt: true,
-      },
+      select: userSelect,
     });
 
     if (!user) {
@@ -70,32 +53,53 @@ export class UsersService {
   async update(id: string, dto: UpdateUserDto): Promise<UserResponseDto> {
     await this.findOne(id);
 
+    if (dto.email) {
+      const taken = await this.prisma.user.findFirst({
+        where: {
+          email: dto.email,
+          deletedAt: null,
+          NOT: { id },
+        },
+      });
+      if (taken) {
+        throw new ConflictException('Email already in use');
+      }
+    }
+
     return this.prisma.user.update({
       where: { id },
       data: dto,
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        avatarId: true,
-        createdAt: true,
-      },
+      select: userSelect,
     });
   }
 
+  /**
+   * Soft-delete and free the email for re-registration by renaming it.
+   * Also revokes all refresh tokens for the user.
+   */
   async softDelete(id: string): Promise<UserResponseDto> {
-    await this.findOne(id);
+    const user = await this.prisma.user.findFirst({
+      where: { id, deletedAt: null },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const freedEmail = `deleted+${id}+${Date.now()}@deleted.local`;
+
+    await this.prisma.refreshToken.updateMany({
+      where: { userId: id, revoked: false },
+      data: { revoked: true },
+    });
 
     return this.prisma.user.update({
       where: { id },
-      data: { deletedAt: new Date() },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        avatarId: true,
-        createdAt: true,
+      data: {
+        deletedAt: new Date(),
+        email: freedEmail,
       },
+      select: userSelect,
     });
   }
 

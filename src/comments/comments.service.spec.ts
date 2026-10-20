@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { CommentsService } from './comments.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthorizationService } from '../common/authorization/authorization.service';
+import { AttachmentsService } from '../attachments/attachments.service';
 
 describe('CommentsService', () => {
   let service: CommentsService;
@@ -18,12 +19,17 @@ describe('CommentsService', () => {
     assertCommentAuthorOrAdmin: jest.fn(),
   };
 
+  const mockAttachments = {
+    removeForComments: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CommentsService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: AuthorizationService, useValue: mockAuthz },
+        { provide: AttachmentsService, useValue: mockAttachments },
       ],
     }).compile();
 
@@ -63,5 +69,23 @@ describe('CommentsService', () => {
       comment,
     );
     expect(result).toEqual({ id: 'c1', ...dto });
+  });
+
+  it('should soft delete and clean attachments', async () => {
+    const comment = {
+      id: 'c1',
+      authorId: 'u1',
+      task: { projectId: 'p1' },
+    };
+    mockAuthz.assertCommentAccess.mockResolvedValue(comment);
+    mockAuthz.assertCommentAuthorOrAdmin.mockResolvedValue(undefined);
+    mockPrisma.comment.update.mockResolvedValue({
+      id: 'c1',
+      deletedAt: new Date(),
+    });
+
+    await service.softDelete('c1', 'u1');
+
+    expect(mockAttachments.removeForComments).toHaveBeenCalledWith(['c1']);
   });
 });

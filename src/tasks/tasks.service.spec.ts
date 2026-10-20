@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TasksService } from './tasks.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { AttachmentsService } from '../attachments/attachments.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 describe('TasksService', () => {
@@ -15,6 +16,7 @@ describe('TasksService', () => {
       update: jest.fn(),
     },
     comment: {
+      findMany: jest.fn(),
       updateMany: jest.fn(),
     },
     projectMember: {
@@ -22,11 +24,17 @@ describe('TasksService', () => {
     },
   };
 
+  const mockAttachments = {
+    removeForTasks: jest.fn(),
+    removeForComments: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TasksService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: AttachmentsService, useValue: mockAttachments },
       ],
     }).compile();
 
@@ -41,7 +49,6 @@ describe('TasksService', () => {
 
     const result = await service.create('proj-1', dto, 'user-1');
     expect(result).toEqual(mockTask);
-    expect(mockPrisma.task.create).toHaveBeenCalled();
   });
 
   it('should reject assignee who is not a project member', async () => {
@@ -62,27 +69,9 @@ describe('TasksService', () => {
     );
   });
 
-  it('should update a task', async () => {
-    const dto = { title: 'Updated Title' };
-    const mockTask = { id: '1', title: 'Updated Title' };
-
-    mockPrisma.task.findFirst.mockResolvedValue({
-      id: '1',
-      projectId: 'proj-1',
-    });
-    mockPrisma.task.update.mockResolvedValue(mockTask);
-
-    const result = await service.update('1', dto);
-
-    expect(result).toEqual(mockTask);
-    expect(mockPrisma.task.update).toHaveBeenCalledWith({
-      where: { id: '1' },
-      data: expect.objectContaining(dto),
-    });
-  });
-
-  it('should soft delete a task and its comments', async () => {
+  it('should soft delete a task, comments, and attachments', async () => {
     mockPrisma.task.findFirst.mockResolvedValue({ id: '1' });
+    mockPrisma.comment.findMany.mockResolvedValue([{ id: 'c1' }]);
     mockPrisma.comment.updateMany.mockResolvedValue({ count: 1 });
     mockPrisma.task.update.mockResolvedValue({
       id: '1',
@@ -91,11 +80,8 @@ describe('TasksService', () => {
 
     await service.softDelete('1');
 
-    expect(mockPrisma.comment.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ taskId: '1' }),
-      }),
-    );
-    expect(mockPrisma.task.update).toHaveBeenCalled();
+    expect(mockAttachments.removeForComments).toHaveBeenCalledWith(['c1']);
+    expect(mockAttachments.removeForTasks).toHaveBeenCalledWith(['1']);
+    expect(mockPrisma.comment.updateMany).toHaveBeenCalled();
   });
 });

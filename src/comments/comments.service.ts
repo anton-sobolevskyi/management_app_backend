@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthorizationService } from '../common/authorization/authorization.service';
+import { AttachmentsService } from '../attachments/attachments.service';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { UpdateCommentDto } from './dto/update-comment.dto';
 import { CommentResponseDto } from './dto/comment-response.dto';
@@ -16,6 +17,7 @@ export class CommentsService {
   constructor(
     private prisma: PrismaService,
     private authz: AuthorizationService,
+    private attachmentsService: AttachmentsService,
   ) {}
 
   async create(
@@ -89,6 +91,8 @@ export class CommentsService {
   async softDelete(id: string, userId: string): Promise<CommentResponseDto> {
     const comment = await this.authz.assertCommentAccess(userId, id);
     await this.authz.assertCommentAuthorOrAdmin(userId, comment);
+
+    await this.attachmentsService.removeForComments([id]);
 
     return this.prisma.comment.update({
       where: { id },

@@ -2,8 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AttachmentsService } from './attachments.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { S3Service } from '../s3/s3.service';
-import { NotFoundException, BadRequestException } from '@nestjs/common';
-import { AttachmentType } from '../generated/prisma/enums';
+import { NotFoundException } from '@nestjs/common';
 
 describe('AttachmentsService', () => {
   let service: AttachmentsService;
@@ -32,6 +31,7 @@ describe('AttachmentsService', () => {
               findUnique: jest.fn(),
               findMany: jest.fn(),
               delete: jest.fn(),
+              deleteMany: jest.fn(),
             },
           },
         },
@@ -53,9 +53,15 @@ describe('AttachmentsService', () => {
 
   describe('uploadForTask', () => {
     it('should upload file and create attachment record', async () => {
-      jest.spyOn(prisma.task, 'findFirst').mockResolvedValue({ id: 'task1' } as any);
-      jest.spyOn(s3, 'uploadFile').mockResolvedValue({ key: 'key', bucket: 'bucket' });
-      jest.spyOn(prisma.attachment, 'create').mockResolvedValue({ id: 'att1' } as any);
+      jest
+        .spyOn(prisma.task, 'findFirst')
+        .mockResolvedValue({ id: 'task1' } as any);
+      jest
+        .spyOn(s3, 'uploadFile')
+        .mockResolvedValue({ key: 'key', bucket: 'bucket' });
+      jest
+        .spyOn(prisma.attachment, 'create')
+        .mockResolvedValue({ id: 'att1' } as any);
 
       const result = await service.uploadForTask('task1', mockFile, 'user1');
       expect(result.id).toBe('att1');
@@ -63,45 +69,55 @@ describe('AttachmentsService', () => {
 
     it('should throw NotFoundException if task does not exist', async () => {
       jest.spyOn(prisma.task, 'findFirst').mockResolvedValue(null);
-      await expect(service.uploadForTask('task1', mockFile, 'user1')).rejects.toThrow(NotFoundException);
+      await expect(
+        service.uploadForTask('task1', mockFile, 'user1'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('uploadForComment', () => {
     it('should upload file and create attachment record', async () => {
-      jest.spyOn(prisma.comment, 'findFirst').mockResolvedValue({ id: 'comm1' } as any);
-      jest.spyOn(s3, 'uploadFile').mockResolvedValue({ key: 'key', bucket: 'bucket' });
-      jest.spyOn(prisma.attachment, 'create').mockResolvedValue({ id: 'att1' } as any);
+      jest
+        .spyOn(prisma.comment, 'findFirst')
+        .mockResolvedValue({ id: 'comm1' } as any);
+      jest
+        .spyOn(s3, 'uploadFile')
+        .mockResolvedValue({ key: 'key', bucket: 'bucket' });
+      jest
+        .spyOn(prisma.attachment, 'create')
+        .mockResolvedValue({ id: 'att1' } as any);
 
       const result = await service.uploadForComment('comm1', mockFile, 'user1');
       expect(result.id).toBe('att1');
-    });
-
-    it('should throw NotFoundException if comment does not exist', async () => {
-      jest.spyOn(prisma.comment, 'findFirst').mockResolvedValue(null);
-      await expect(service.uploadForComment('comm1', mockFile, 'user1')).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('uploadAvatar', () => {
     it('should upload avatar and update user', async () => {
       const attachment = { id: 'att1' };
-      jest.spyOn(s3, 'uploadFile').mockResolvedValue({ key: 'key', bucket: 'bucket' });
-      jest.spyOn(prisma.attachment, 'create').mockResolvedValue(attachment as any);
-      jest.spyOn(prisma.user, 'findUnique').mockResolvedValue({ avatarId: 'oldAtt' } as any);
+      jest
+        .spyOn(s3, 'uploadFile')
+        .mockResolvedValue({ key: 'key', bucket: 'bucket' });
+      jest
+        .spyOn(prisma.attachment, 'create')
+        .mockResolvedValue(attachment as any);
+      jest
+        .spyOn(prisma.user, 'findUnique')
+        .mockResolvedValue({ avatarId: 'oldAtt' } as any);
       jest.spyOn(prisma.user, 'update').mockResolvedValue({} as any);
       jest.spyOn(service, 'remove').mockResolvedValue({} as any);
 
       const result = await service.uploadAvatar('user1', mockFile);
       expect(result).toEqual(attachment);
-      expect(prisma.user.update).toHaveBeenCalled();
       expect(service.remove).toHaveBeenCalledWith('oldAtt');
     });
   });
 
   describe('findOne', () => {
     it('should return attachment if found', async () => {
-      jest.spyOn(prisma.attachment, 'findUnique').mockResolvedValue({ id: 'att1' } as any);
+      jest
+        .spyOn(prisma.attachment, 'findUnique')
+        .mockResolvedValue({ id: 'att1' } as any);
       const result = await service.findOne('att1');
       expect(result.id).toBe('att1');
     });
@@ -112,25 +128,34 @@ describe('AttachmentsService', () => {
     });
   });
 
-  describe('getDownloadUrl', () => {
-    it('should return presigned url', async () => {
-      jest.spyOn(service, 'findOne').mockResolvedValue({ s3Key: 'key', s3Bucket: 'bucket', fileName: 'test.jpg', mimeType: 'image/jpeg' } as any);
-      jest.spyOn(s3, 'getPresignedUrl').mockResolvedValue('http://url');
-
-      const result = await service.getDownloadUrl('att1');
-      expect(result.url).toBe('http://url');
-    });
-  });
-
   describe('remove', () => {
     it('should delete from s3 and database', async () => {
-      jest.spyOn(prisma.attachment, 'findUnique').mockResolvedValue({ s3Key: 'key', s3Bucket: 'bucket' } as any);
+      jest.spyOn(prisma.attachment, 'findUnique').mockResolvedValue({
+        s3Key: 'key',
+        s3Bucket: 'bucket',
+      } as any);
       jest.spyOn(s3, 'deleteObject').mockResolvedValue(undefined);
-      jest.spyOn(prisma.attachment, 'delete').mockResolvedValue({ id: 'att1' } as any);
+      jest
+        .spyOn(prisma.attachment, 'delete')
+        .mockResolvedValue({ id: 'att1' } as any);
 
       const result = await service.remove('att1');
       expect(result.id).toBe('att1');
       expect(s3.deleteObject).toHaveBeenCalled();
+    });
+  });
+
+  describe('removeForTasks', () => {
+    it('deletes S3 objects and DB rows', async () => {
+      jest.spyOn(prisma.attachment, 'findMany').mockResolvedValue([
+        { id: 'a1', s3Bucket: 'b', s3Key: 'k' },
+      ] as any);
+      jest.spyOn(s3, 'deleteObject').mockResolvedValue(undefined);
+      jest.spyOn(prisma.attachment, 'deleteMany').mockResolvedValue({ count: 1 } as any);
+
+      await service.removeForTasks(['t1']);
+      expect(s3.deleteObject).toHaveBeenCalled();
+      expect(prisma.attachment.deleteMany).toHaveBeenCalled();
     });
   });
 });

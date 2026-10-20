@@ -4,9 +4,10 @@ import { ProjectsController } from './projects.controller';
 import { ProjectMembersService } from './project-members.service';
 import { ProjectMembersController } from './project-members.controller';
 import { PrismaModule } from '../prisma/prisma.module';
+import { AttachmentsModule } from '../attachments/attachments.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, AttachmentsModule],
   providers: [ProjectsService, ProjectMembersService],
   controllers: [ProjectsController, ProjectMembersController],
   exports: [ProjectsService, ProjectMembersService],

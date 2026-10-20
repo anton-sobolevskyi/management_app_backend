@@ -10,43 +10,52 @@ describe('Users (e2e)', () => {
 
   beforeAll(async () => {
     app = await createTestApp();
-    accessToken = await getAuthToken(app);
-    // Extract userId from token or fetch current user
-    const res: { body: UserResponseDto[] } = await request(app.getHttpServer())
-      .get('/users')
-      .set('Authorization', `Bearer ${accessToken}`);
-    userId = res.body[0].id;
+    accessToken = await getAuthToken(app, undefined, 'password1');
+
+    const res: { body: UserResponseDto } = await request(app.getHttpServer())
+      .get('/users/me')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    userId = res.body.id;
   });
 
   afterAll(async () => {
     await app.close();
   });
 
-  it('GET /users', () => {
+  it('GET /users/me', () => {
     return request(app.getHttpServer())
-      .get('/users')
+      .get('/users/me')
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
   });
 
-  it('GET /users/:id', () => {
+  it('GET /users/:id (self)', () => {
     return request(app.getHttpServer())
       .get(`/users/${userId}`)
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
   });
 
-  it('PATCH /users/:id', () => {
+  it('GET /users/:id (other) → 403', async () => {
+    // random UUID not owned by current user
+    await request(app.getHttpServer())
+      .get('/users/00000000-0000-4000-8000-000000000099')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(403);
+  });
+
+  it('PATCH /users/me', () => {
     return request(app.getHttpServer())
-      .patch(`/users/${userId}`)
+      .patch('/users/me')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ name: 'Updated Name' })
       .expect(200);
   });
 
-  it('DELETE /users/:id', () => {
+  it('DELETE /users/me', () => {
     return request(app.getHttpServer())
-      .delete(`/users/${userId}`)
+      .delete('/users/me')
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
   });
