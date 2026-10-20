@@ -10,8 +10,11 @@ test-unit = { description = "Run unit tests", run = [
   "npm run db:generate",
   "npm run test",
 ] }
+# Prisma generate needs DATABASE_URL present (prisma.config.ts) even though
+# it does not connect. CI e2e has no DB URL until Testcontainers starts, so
+# fall back to a placeholder. Real URL is set in e2e.setup.ts for migrate.
 test-e2e = { description = "Run e2e tests (spins up Postgres via testcontainers)", run = [
-  "npm run db:generate",
+  "DATABASE_URL=${DATABASE_URL:-postgresql://test:test@127.0.0.1:5432/test} npm run db:generate",
   "NODE_OPTIONS=--experimental-vm-modules npm run test:e2e",
 ] }
 
