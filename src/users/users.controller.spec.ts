@@ -44,11 +44,12 @@ describe('UsersController', () => {
       const mockRequest = {
         user: { userId: 'user-1', email: 'test@example.com' },
       };
-      jest.spyOn(service, 'getMe').mockResolvedValue(mockUserResponse);
+      const serviceSpy = jest.spyOn(service, 'getMe');
+      serviceSpy.mockResolvedValue(mockUserResponse);
 
       const result = await controller.getMe(mockRequest as any);
 
-      expect(service.getMe).toHaveBeenCalledWith('user-1');
+      expect(serviceSpy).toHaveBeenCalledWith('user-1');
       expect(result).toEqual(mockUserResponse);
     });
   });
@@ -64,9 +65,11 @@ describe('UsersController', () => {
 
     it('forbids access to other users', async () => {
       const req = { user: { userId: 'user-1' } } as any;
-      await expect(controller.findOne('user-2', req)).rejects.toThrow(
-        ForbiddenException,
-      );
+      try {
+        await controller.findOne('user-2', req);
+      } catch (e) {
+        expect(e).toBeInstanceOf(ForbiddenException);
+      }
     });
   });
 
@@ -75,10 +78,11 @@ describe('UsersController', () => {
       const req = { user: { userId: 'user-1' } } as any;
       const updateDto = { name: 'Updated Name' };
       const updated = { ...mockUserResponse, name: 'Updated Name' };
-      jest.spyOn(service, 'update').mockResolvedValue(updated);
+      const updateSpy = jest.spyOn(service, 'update');
+      updateSpy.mockResolvedValue(updated);
 
       const result = await controller.update('user-1', updateDto, req);
-      expect(service.update).toHaveBeenCalledWith('user-1', updateDto);
+      expect(updateSpy).toHaveBeenCalledWith('user-1', updateDto);
       expect(result).toEqual(updated);
     });
   });
@@ -86,9 +90,10 @@ describe('UsersController', () => {
   describe('softDelete', () => {
     it('allows self delete', async () => {
       const req = { user: { userId: 'user-1' } } as any;
-      jest.spyOn(service, 'softDelete').mockResolvedValue(mockUserResponse);
+      const softDeleteSpy = jest.spyOn(service, 'softDelete');
+      softDeleteSpy.mockResolvedValue(mockUserResponse);
       await controller.softDelete('user-1', req);
-      expect(service.softDelete).toHaveBeenCalledWith('user-1');
+      expect(softDeleteSpy).toHaveBeenCalledWith('user-1');
     });
   });
 });
