@@ -43,7 +43,6 @@ export class UsersController {
   @ApiOperation({ summary: 'Get own user profile by id (self only)' })
   findOne(@Param('id') id: string, @Request() req: ExpressRequest) {
     this.assertSelf(req.user!['userId'], id);
-    console.log('here');
     return this.usersService.findOne(id);
   }
 

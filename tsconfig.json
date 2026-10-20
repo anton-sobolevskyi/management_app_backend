@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "rootDir": ".",
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "resolvePackageJsonExports": true,
@@ -22,6 +21,6 @@
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false,
     "strictPropertyInitialization": false,
-    "types": ["node", "jest", "multer"]
+    "types": ["multer"]
   }
 }
