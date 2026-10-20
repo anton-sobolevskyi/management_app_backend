@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProjectsController } from './projects.controller';
 import { ProjectsService } from './projects.service';
+import { ProjectMemberGuard } from '../common/authorization/project-member.guard';
 
 describe('ProjectsController', () => {
   let controller: ProjectsController;
@@ -21,7 +22,10 @@ describe('ProjectsController', () => {
           },
         },
       ],
-    }).compile();
+    })
+      .overrideGuard(ProjectMemberGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<ProjectsController>(ProjectsController);
     service = module.get<ProjectsService>(ProjectsService);

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CommentsController } from './comments.controller';
 import { CommentsService } from './comments.service';
+import { ProjectMemberGuard } from '../common/authorization/project-member.guard';
 
 describe('CommentsController', () => {
   let controller: CommentsController;
@@ -14,7 +15,10 @@ describe('CommentsController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [CommentsController],
       providers: [{ provide: CommentsService, useValue: mockCommentsService }],
-    }).compile();
+    })
+      .overrideGuard(ProjectMemberGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<CommentsController>(CommentsController);
     service = module.get<CommentsService>(CommentsService);

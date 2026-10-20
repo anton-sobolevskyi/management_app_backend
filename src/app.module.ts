@@ -6,12 +6,14 @@ import { ProjectsModule } from './projects/projects.module';
 import { TasksModule } from './tasks/tasks.module';
 import { CommentsModule } from './comments/comments.module';
 import { AttachmentsModule } from './attachments/attachments.module';
+import { AuthorizationModule } from './common/authorization/authorization.module';
 import { AppController } from './app/app.controller';
 import { AppService } from './app/app.service';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    AuthorizationModule,
     UsersModule,
     AuthModule,
     ProjectsModule,

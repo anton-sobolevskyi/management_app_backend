@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TaskController } from './task.controller';
 import { TasksService } from './tasks.service';
+import { ProjectMemberGuard } from '../common/authorization/project-member.guard';
 
 describe('TaskController', () => {
   let controller: TaskController;
@@ -10,7 +11,10 @@ describe('TaskController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [TaskController],
       providers: [{ provide: TasksService, useValue: { findOne: jest.fn() } }],
-    }).compile();
+    })
+      .overrideGuard(ProjectMemberGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<TaskController>(TaskController);
     service = module.get<TasksService>(TasksService);

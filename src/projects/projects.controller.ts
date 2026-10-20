@@ -13,6 +13,9 @@ import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { ProjectMemberGuard } from '../common/authorization/project-member.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { Role } from '../generated/prisma/enums';
 import type { Request as ExpressRequest } from 'express';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation } from '@nestjs/swagger';
 import { ProjectResponseDto } from './dto/project-response.dto';
@@ -37,19 +40,24 @@ export class ProjectsController {
   }
 
   @Get(':id')
+  @UseGuards(ProjectMemberGuard)
   @ApiOperation({ summary: 'Retrieve a single project' })
   findOne(@Param('id') id: string) {
     return this.projectsService.findOne(id);
   }
 
-  @ApiOperation({ summary: 'Update a project by ID' })
   @Patch(':id')
+  @UseGuards(ProjectMemberGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @ApiOperation({ summary: 'Update a project by ID' })
   update(@Param('id') id: string, @Body() dto: UpdateProjectDto) {
     return this.projectsService.update(id, dto);
   }
 
-  @ApiOperation({ summary: 'Delete a project by ID (soft delete)' })
   @Delete(':id')
+  @UseGuards(ProjectMemberGuard)
+  @Roles(Role.OWNER)
+  @ApiOperation({ summary: 'Delete a project by ID (soft delete)' })
   softDelete(@Param('id') id: string) {
     return this.projectsService.softDelete(id);
   }
