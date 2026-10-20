@@ -4,6 +4,7 @@ import {
   Post,
   Param,
   Body,
+  Query,
   Request,
   UseGuards,
 } from '@nestjs/common';
@@ -13,6 +14,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ProjectMemberGuard } from '../common/authorization/project-member.guard';
 import type { Request as ExpressRequest } from 'express';
 import { ApiBearerAuth } from '@nestjs/swagger';
+import { PaginationQueryDto } from '../common/dto/pagination.dto';
 
 @UseGuards(JwtAuthGuard, ProjectMemberGuard)
 @ApiBearerAuth('access-token')
@@ -30,7 +32,10 @@ export class CommentsController {
   }
 
   @Get()
-  findAll(@Param('taskId') taskId: string) {
-    return this.commentsService.findAll(taskId);
+  findAll(
+    @Param('taskId') taskId: string,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.commentsService.findAll(taskId, query);
   }
 }

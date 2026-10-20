@@ -6,6 +6,7 @@ import {
   Delete,
   Param,
   Body,
+  Query,
   Request,
   UseGuards,
 } from '@nestjs/common';
@@ -19,6 +20,7 @@ import { Role } from '../generated/prisma/enums';
 import type { Request as ExpressRequest } from 'express';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation } from '@nestjs/swagger';
 import { ProjectResponseDto } from './dto/project-response.dto';
+import { PaginationQueryDto } from '../common/dto/pagination.dto';
 
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('access-token')
@@ -34,9 +36,12 @@ export class ProjectsController {
 
   @ApiOkResponse({ type: [ProjectResponseDto] })
   @Get()
-  @ApiOperation({ summary: 'Retrieve a list of all projects' })
-  findAll(@Request() req: ExpressRequest) {
-    return this.projectsService.findAll(req.user!['userId']);
+  @ApiOperation({ summary: 'Retrieve a paginated list of projects' })
+  findAll(
+    @Request() req: ExpressRequest,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.projectsService.findAll(req.user!['userId'], query);
   }
 
   @Get(':id')

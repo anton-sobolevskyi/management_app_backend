@@ -6,6 +6,10 @@ import request from 'supertest';
 import { AuthResponseDto } from '../../src/auth/dto/auth-response.dto';
 
 export async function createTestApp(): Promise<INestApplication> {
+  // Ensure auth rate limiting does not interfere with multi-user e2e suites
+  process.env.NODE_ENV = 'test';
+  process.env.DISABLE_THROTTLE = 'true';
+
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [AppModule],
   }).compile();
@@ -29,7 +33,9 @@ export async function registerUser(
   app: INestApplication,
   overrides?: Partial<{ email: string; password: string; name: string }>,
 ): Promise<TestUser> {
-  const email = overrides?.email ?? `test-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`;
+  const email =
+    overrides?.email ??
+    `test-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`;
   const password = overrides?.password ?? 'password123';
   const name = overrides?.name ?? 'Test User';
 

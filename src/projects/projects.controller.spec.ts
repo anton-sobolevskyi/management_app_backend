@@ -40,8 +40,9 @@ describe('ProjectsController', () => {
 
   it('should find all projects', async () => {
     const req = { user: { userId: '1' } } as any;
-    jest.spyOn(service, 'findAll').mockResolvedValue([]);
-    expect(await controller.findAll(req)).toEqual([]);
+    const page = { data: [], meta: { total: 0, page: 1, limit: 20, totalPages: 1 } };
+    jest.spyOn(service, 'findAll').mockResolvedValue(page as any);
+    expect(await controller.findAll(req, {})).toEqual(page);
   });
 
   it('should find one project', async () => {

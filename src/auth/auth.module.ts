@@ -8,6 +8,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
+import { SimpleThrottlerGuard } from '../common/throttler/simple-throttler.guard';
 
 @Module({
   imports: [PrismaModule, PassportModule, JwtModule.register({})],
@@ -17,6 +18,7 @@ import { LocalStrategy } from './strategies/local.strategy';
     LocalAuthGuard,
     JwtStrategy,
     LocalStrategy,
+    SimpleThrottlerGuard,
   ],
   controllers: [AuthController],
 })

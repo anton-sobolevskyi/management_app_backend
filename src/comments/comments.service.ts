@@ -4,6 +4,12 @@ import { AuthorizationService } from '../common/authorization/authorization.serv
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { UpdateCommentDto } from './dto/update-comment.dto';
 import { CommentResponseDto } from './dto/comment-response.dto';
+import {
+  PaginatedResponseDto,
+  PaginationQueryDto,
+  paginate,
+  paginationArgs,
+} from '../common/dto/pagination.dto';
 
 @Injectable()
 export class CommentsService {
@@ -22,22 +28,35 @@ export class CommentsService {
     });
   }
 
-  async findAll(taskId: string): Promise<CommentResponseDto[]> {
-    return this.prisma.comment.findMany({
-      where: { taskId, deletedAt: null },
-      include: {
-        author: {
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            avatarId: true,
-            createdAt: true,
+  async findAll(
+    taskId: string,
+    query: PaginationQueryDto = {},
+  ): Promise<PaginatedResponseDto<CommentResponseDto>> {
+    const { page, limit, skip } = paginationArgs(query);
+    const where = { taskId, deletedAt: null as null };
+
+    const [total, data] = await Promise.all([
+      this.prisma.comment.count({ where }),
+      this.prisma.comment.findMany({
+        where,
+        include: {
+          author: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              avatarId: true,
+              createdAt: true,
+            },
           },
         },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+        orderBy: { createdAt: 'asc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    return paginate(data, total, page, limit);
   }
 
   async findOne(id: string): Promise<CommentResponseDto> {

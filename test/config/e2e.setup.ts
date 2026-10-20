@@ -10,7 +10,7 @@ config({ path: resolve(__dirname, '../.env.test'), override: true });
 
 let postgresContainer: StartedPostgreSqlContainer;
 
-jest.setTimeout(60000);
+jest.setTimeout(120000);
 
 beforeAll(async () => {
   postgresContainer = await new PostgreSqlContainer('postgres:16-alpine')
@@ -22,8 +22,7 @@ beforeAll(async () => {
   const dbUrl = postgresContainer.getConnectionUri();
   process.env.DATABASE_URL = dbUrl;
 
-  // Migrate only — client is generated once before the Jest process starts
-  // (mise test-e2e / CI). Avoid concurrent prisma generate across workers.
+  // maxWorkers: 1 — sequential migrate only (client generated before Jest)
   execSync('npx prisma migrate deploy', {
     env: { ...process.env },
     stdio: 'inherit',

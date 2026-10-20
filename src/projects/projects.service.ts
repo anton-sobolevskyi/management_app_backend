@@ -4,6 +4,12 @@ import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ProjectResponseDto } from './dto/project-response.dto';
 import { Role } from '../generated/prisma/enums';
+import {
+  PaginatedResponseDto,
+  PaginationQueryDto,
+  paginate,
+  paginationArgs,
+} from '../common/dto/pagination.dto';
 
 @Injectable()
 export class ProjectsService {
@@ -25,14 +31,28 @@ export class ProjectsService {
     });
   }
 
-  async findAll(userId: string): Promise<ProjectResponseDto[]> {
-    return this.prisma.project.findMany({
-      where: {
-        deletedAt: null,
-        members: { some: { userId } },
-      },
-      include: { members: true },
-    });
+  async findAll(
+    userId: string,
+    query: PaginationQueryDto = {},
+  ): Promise<PaginatedResponseDto<ProjectResponseDto>> {
+    const { page, limit, skip } = paginationArgs(query);
+    const where = {
+      deletedAt: null as null,
+      members: { some: { userId } },
+    };
+
+    const [total, data] = await Promise.all([
+      this.prisma.project.count({ where }),
+      this.prisma.project.findMany({
+        where,
+        include: { members: true },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    return paginate(data, total, page, limit);
   }
 
   async findOne(id: string): Promise<ProjectResponseDto> {
@@ -75,14 +95,29 @@ export class ProjectsService {
   async softDelete(id: string): Promise<ProjectResponseDto> {
     await this.findOne(id);
 
+    const now = new Date();
+
+    const tasks = await this.prisma.task.findMany({
+      where: { projectId: id, deletedAt: null },
+      select: { id: true },
+    });
+    const taskIds = tasks.map((t) => t.id);
+
+    if (taskIds.length > 0) {
+      await this.prisma.comment.updateMany({
+        where: { taskId: { in: taskIds }, deletedAt: null },
+        data: { deletedAt: now },
+      });
+    }
+
     await this.prisma.task.updateMany({
       where: { projectId: id, deletedAt: null },
-      data: { deletedAt: new Date() },
+      data: { deletedAt: now },
     });
 
     return this.prisma.project.update({
       where: { id },
-      data: { deletedAt: new Date() },
+      data: { deletedAt: now },
       include: { members: true },
     });
   }
