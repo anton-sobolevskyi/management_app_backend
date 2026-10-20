@@ -26,6 +26,7 @@ describe('AuthService', () => {
               update: jest.fn(),
               create: jest.fn(),
               updateMany: jest.fn(),
+              deleteMany: jest.fn(),
             },
           },
         },
@@ -49,7 +50,7 @@ describe('AuthService', () => {
       await expect(
         service.register({
           email: 'test@test.com',
-          password: 'password',
+          password: 'password1',
           name: 'Test',
         }),
       ).rejects.toThrow(ConflictException);
@@ -66,7 +67,7 @@ describe('AuthService', () => {
 
       const result = await service.register({
         email: 'test@test.com',
-        password: 'password',
+        password: 'password1',
         name: 'Test',
       });
       expect(result).toEqual({ accessToken: 'token', refreshToken: 'token' });

@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AttachmentsService } from '../attachments/attachments.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ProjectResponseDto } from './dto/project-response.dto';
@@ -13,7 +14,10 @@ import {
 
 @Injectable()
 export class ProjectsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private attachmentsService: AttachmentsService,
+  ) {}
 
   async create(
     dto: CreateProjectDto,
@@ -104,6 +108,15 @@ export class ProjectsService {
     const taskIds = tasks.map((t) => t.id);
 
     if (taskIds.length > 0) {
+      const comments = await this.prisma.comment.findMany({
+        where: { taskId: { in: taskIds }, deletedAt: null },
+        select: { id: true },
+      });
+      const commentIds = comments.map((c) => c.id);
+
+      await this.attachmentsService.removeForComments(commentIds);
+      await this.attachmentsService.removeForTasks(taskIds);
+
       await this.prisma.comment.updateMany({
         where: { taskId: { in: taskIds }, deletedAt: null },
         data: { deletedAt: now },

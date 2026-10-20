@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { S3Service } from '../s3/s3.service';
@@ -21,6 +22,8 @@ const ALLOWED_MIME_TYPES = [
 
 @Injectable()
 export class AttachmentsService {
+  private readonly logger = new Logger(AttachmentsService.name);
+
   constructor(
     private prisma: PrismaService,
     private s3Service: S3Service,
@@ -182,6 +185,48 @@ export class AttachmentsService {
     await this.s3Service.deleteObject(attachment.s3Bucket, attachment.s3Key);
 
     return this.prisma.attachment.delete({ where: { id } });
+  }
+
+  /** Best-effort S3 + DB cleanup for attachments linked to tasks. */
+  async removeForTasks(taskIds: string[]): Promise<void> {
+    if (taskIds.length === 0) return;
+
+    const attachments = await this.prisma.attachment.findMany({
+      where: { taskId: { in: taskIds } },
+    });
+
+    await this.deleteAttachments(attachments);
+  }
+
+  /** Best-effort S3 + DB cleanup for attachments linked to comments. */
+  async removeForComments(commentIds: string[]): Promise<void> {
+    if (commentIds.length === 0) return;
+
+    const attachments = await this.prisma.attachment.findMany({
+      where: { commentId: { in: commentIds } },
+    });
+
+    await this.deleteAttachments(attachments);
+  }
+
+  private async deleteAttachments(
+    attachments: { id: string; s3Bucket: string; s3Key: string }[],
+  ) {
+    for (const att of attachments) {
+      try {
+        await this.s3Service.deleteObject(att.s3Bucket, att.s3Key);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to delete S3 object ${att.s3Key}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    if (attachments.length > 0) {
+      await this.prisma.attachment.deleteMany({
+        where: { id: { in: attachments.map((a) => a.id) } },
+      });
+    }
   }
 
   private validateFile(

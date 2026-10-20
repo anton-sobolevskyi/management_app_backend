@@ -6,7 +6,6 @@ import request from 'supertest';
 import { AuthResponseDto } from '../../src/auth/dto/auth-response.dto';
 
 export async function createTestApp(): Promise<INestApplication> {
-  // Ensure auth rate limiting does not interfere with multi-user e2e suites
   process.env.NODE_ENV = 'test';
   process.env.DISABLE_THROTTLE = 'true';
 
@@ -28,7 +27,7 @@ export type TestUser = {
   name: string;
 };
 
-/** Register a fresh user (no shared cache) — preferred for multi-user e2e. */
+/** Register a fresh user — password must include a letter and a number. */
 export async function registerUser(
   app: INestApplication,
   overrides?: Partial<{ email: string; password: string; name: string }>,
@@ -36,7 +35,7 @@ export async function registerUser(
   const email =
     overrides?.email ??
     `test-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`;
-  const password = overrides?.password ?? 'password123';
+  const password = overrides?.password ?? 'password1';
   const name = overrides?.name ?? 'Test User';
 
   const res: { body: AuthResponseDto } = await request(app.getHttpServer())
@@ -47,11 +46,10 @@ export async function registerUser(
   return { accessToken: res.body.accessToken, email, password, name };
 }
 
-/** @deprecated Prefer registerUser for isolated multi-user tests */
 export async function getAuthToken(
   app: INestApplication,
   email = `test-${Date.now()}@example.com`,
-  password = 'password123',
+  password = 'password1',
 ): Promise<string> {
   const user = await registerUser(app, { email, password });
   return user.accessToken;

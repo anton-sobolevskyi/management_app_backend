@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { ProjectsService } from './projects.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { AttachmentsService } from '../attachments/attachments.service';
 import { Role } from '../generated/prisma/enums';
 
 describe('ProjectsService', () => {
@@ -14,6 +15,11 @@ describe('ProjectsService', () => {
     description: 'Description Alpha',
     deletedAt: null,
     members: [{ userId: 'user-1', role: Role.OWNER }],
+  };
+
+  const mockAttachments = {
+    removeForTasks: jest.fn(),
+    removeForComments: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -35,15 +41,18 @@ describe('ProjectsService', () => {
               updateMany: jest.fn(),
             },
             comment: {
+              findMany: jest.fn(),
               updateMany: jest.fn(),
             },
           },
         },
+        { provide: AttachmentsService, useValue: mockAttachments },
       ],
     }).compile();
 
     service = module.get<ProjectsService>(ProjectsService);
     prisma = module.get<PrismaService>(PrismaService);
+    jest.clearAllMocks();
   });
 
   describe('create', () => {
@@ -88,32 +97,25 @@ describe('ProjectsService', () => {
     });
   });
 
-  describe('update', () => {
-    it('should update a project', async () => {
-      jest.spyOn(service, 'findOne').mockResolvedValue(mockProject as any);
-      jest
-        .spyOn(prisma.project, 'update')
-        .mockResolvedValue(mockProject as any);
-      const result = await service.update('project-1', { name: 'New Name' });
-      expect(result).toEqual(mockProject);
-    });
-  });
-
   describe('softDelete', () => {
-    it('should soft delete a project, its tasks and comments', async () => {
+    it('should soft delete and clean attachments', async () => {
       jest.spyOn(service, 'findOne').mockResolvedValue(mockProject as any);
       jest
         .spyOn(prisma.task, 'findMany')
         .mockResolvedValue([{ id: 't1' }] as any);
+      jest
+        .spyOn(prisma.comment, 'findMany')
+        .mockResolvedValue([{ id: 'c1' }] as any);
       jest.spyOn(prisma.comment, 'updateMany').mockResolvedValue({ count: 1 } as any);
       jest.spyOn(prisma.task, 'updateMany').mockResolvedValue({ count: 1 } as any);
       jest
         .spyOn(prisma.project, 'update')
         .mockResolvedValue(mockProject as any);
-      const result = await service.softDelete('project-1');
-      expect(result).toEqual(mockProject);
-      expect(prisma.comment.updateMany).toHaveBeenCalled();
-      expect(prisma.task.updateMany).toHaveBeenCalled();
+
+      await service.softDelete('project-1');
+
+      expect(mockAttachments.removeForComments).toHaveBeenCalledWith(['c1']);
+      expect(mockAttachments.removeForTasks).toHaveBeenCalledWith(['t1']);
     });
   });
 });

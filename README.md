@@ -8,23 +8,27 @@ Modular project management backend API for teams — projects, tasks, comments, 
 
 ## Goals / Purpose
 
-Portfolio project built to demonstrate backend engineering skills relevant to job applications:
+Portfolio project built to demonstrate backend engineering skills:
 
 - Production-style REST API with NestJS modular architecture
-- Auth (JWT + refresh rotation), roles, soft deletes, and S3 file handling
-- Prisma + PostgreSQL, Docker, CI, and deployable setup (Render)
+- Auth (JWT + hashed refresh rotation), RBAC, soft deletes, S3 files
+- Prisma + PostgreSQL, Docker, CI, deployable setup (Render)
 - Clear domain model for a real product (projects, tasks, collaboration)
 
 ## Features
 
-- JWT authentication with access/refresh token rotation
+- JWT authentication with **hashed** refresh tokens and rotation
+- Auth rate limiting (register / login / refresh)
 - Projects with member roles (`OWNER`, `ADMIN`, `MEMBER`)
-- Tasks with status (`TODO`, `IN_PROGRESS`, `IN_REVIEW`, `DONE`) and priority
-- Task assignment, due dates, and soft deletes
-- Comments on tasks
-- File attachments (tasks, comments, user avatars) via S3-compatible storage
-- Swagger/OpenAPI docs at `/api-docs`
-- Request validation with `class-validator`
+- Member management (invite by email, role updates, ownership transfer, self-leave)
+- Tasks with status, priority, assignee (must be a member), search & date filters
+- Paginated list endpoints (`{ data, meta }`)
+- Comments with author-or-admin edit rules
+- File attachments via S3; cleaned up on parent soft-delete
+- Soft deletes with cascade (project → tasks → comments)
+- User profile is **self-only** (`/users/me`); soft-delete frees email for re-registration
+- Swagger/OpenAPI at `/api-docs`
+- Request validation, security headers, request IDs, global exception filter
 
 ## Tech Stack
 
@@ -43,32 +47,29 @@ Portfolio project built to demonstrate backend engineering skills relevant to jo
 
 ## Architecture Highlights
 
-- Feature-based NestJS modules (`auth`, `users`, `projects`, `tasks`, `comments`, `attachments`)
+- Feature-based NestJS modules + global `AuthorizationModule`
+- `ProjectMemberGuard` + `@Roles()` for membership/RBAC (404 for non-members)
 - Soft deletes on core entities (`deletedAt`)
-- Refresh token storage and rotation
-- Presigned S3 URLs for uploads/downloads
+- Refresh tokens stored as SHA-256 hashes
+- Presigned S3 URLs for downloads
 - E2E tests with Testcontainers (PostgreSQL)
-- CI via GitHub Actions; deploy config for Render
+- CI via GitHub Actions
 
 ## Project Structure
 
 ```
 src/
-├── auth/           # Register, login, JWT strategies, guards
-├── users/          # Profile and avatar
-├── projects/       # Projects and membership
-├── tasks/          # Task lifecycle
+├── auth/           # Register, login, JWT strategies, guards, throttle
+├── users/          # Self-only profile
+├── projects/       # Projects, membership, ownership transfer
+├── tasks/          # Task lifecycle + filters
 ├── comments/       # Task comments
-├── attachments/    # S3 uploads/downloads
-├── prisma/         # Prisma module/service
-├── s3/             # S3 client wrapper
+├── attachments/    # S3 uploads/downloads + cleanup
+├── common/         # Authz, pagination, throttler, filters
+├── prisma/
+├── s3/
 ├── config/
 └── main.ts
-
-prisma/
-├── schema.prisma
-├── migrations/
-└── seed.ts
 ```
 
 ## Getting Started
@@ -77,7 +78,7 @@ prisma/
 
 - Node.js 20+
 - Docker & Docker Compose
-- [mise](https://mise.jdx.dev/) (recommended for tasks)
+- [mise](https://mise.jdx.dev/) (recommended)
 
 ### Installation
 
@@ -92,71 +93,34 @@ cp .env.example .env
 
 | Variable | Description |
 |----------|-------------|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `JWT_ACCESS_SECRET` | Access token secret |
-| `JWT_REFRESH_SECRET` | Refresh token secret |
-| `JWT_EXPIRES_IN` | Access token TTL (e.g. `15m`) |
-| `REFRESH_TOKEN_EXPIRES_IN` | Refresh token TTL (e.g. `7d`) |
+| `DATABASE_URL` | PostgreSQL connection string (**required**) |
+| `JWT_ACCESS_SECRET` | Access token secret (**required**) |
+| `JWT_REFRESH_SECRET` | Refresh token secret (**required**) |
 | `AWS_REGION` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3 credentials |
 | `AWS_S3_BUCKET` / `AWS_S3_ENDPOINT` | Bucket and optional custom endpoint |
-| `FRONTEND_URL` | CORS origin |
+| `FRONTEND_URL` | CORS origin(s), comma-separated |
 
 ### Development
 
 ```bash
 mise run db-setup   # start DB, generate client, migrate, seed
-mise run dev        # start API in watch mode
-# → http://localhost:3000
-# → Swagger: http://localhost:3000/api-docs
-```
-
-Without mise:
-
-```bash
-docker compose up -d
-npm run db:generate
-npm run db:migrate
-npm run db:seed
-npm run start:dev
-```
-
-### Build & Production
-
-```bash
-npm run build
-npm run start:prod
+mise run dev        # → http://localhost:3000  Swagger: /api-docs
 ```
 
 ### Tests
 
 ```bash
-npm test            # unit
-npm run test:e2e    # e2e (Testcontainers)
+mise run test-unit
+mise run test-e2e
 ```
 
-## Scripts
+## API notes
 
-| Command | Description |
-|---------|-------------|
-| `mise run dev` | Start dev server |
-| `mise run db-up` / `db-down` | Start/stop Postgres containers |
-| `mise run db-setup` | Full DB init (up + generate + migrate + seed) |
-| `npm run start:dev` | Nest watch mode |
-| `npm run build` | Production build |
-| `npm run db:generate` | Prisma client |
-| `npm run db:migrate` | Run migrations |
-| `npm run db:seed` | Seed database |
-| `npm run db:studio` | Prisma Studio |
-| `npm run lint` | ESLint |
-| `npm test` / `npm run test:e2e` | Unit / e2e tests |
-
-## Key Implementation Details
-
-- **Roles:** `OWNER`, `ADMIN`, `MEMBER` on `ProjectMember`
-- **Task status:** `TODO` → `IN_PROGRESS` → `IN_REVIEW` → `DONE`
-- **Priority:** `LOW`, `MEDIUM`, `HIGH`, `URGENT`
-- **Attachments:** linked to tasks, comments, or user avatar; stored in S3
-- **Auth:** access JWT + refresh tokens persisted and rotatable
+- **List endpoints** return `{ data: T[], meta: { total, page, limit, totalPages } }`
+- **Passwords** must be ≥ 8 chars with at least one letter and one number
+- **Members:** `GET/POST/PATCH/DELETE /projects/:projectId/members`, ownership transfer at `POST .../members/:userId/transfer-ownership`
+- **Tasks filters:** `q`, `status`, `assignedToId`, `dueBefore`, `dueAfter`
+- **Users:** only `/users/me` and self-scoped `/:id` (no global user directory)
 
 ## License
 

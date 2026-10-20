@@ -4,6 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AttachmentsService } from '../attachments/attachments.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { TaskResponseDto } from './dto/task-response.dto';
@@ -14,9 +15,20 @@ import {
   paginationArgs,
 } from '../common/dto/pagination.dto';
 
+export type TaskListFilters = {
+  status?: string;
+  assignedToId?: string;
+  q?: string;
+  dueBefore?: string;
+  dueAfter?: string;
+};
+
 @Injectable()
 export class TasksService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private attachmentsService: AttachmentsService,
+  ) {}
 
   private async assertAssigneeIsMember(
     projectId: string,
@@ -56,21 +68,39 @@ export class TasksService {
 
   async findAll(
     projectId: string,
-    filters?: { status?: string; assignedToId?: string },
+    filters: TaskListFilters = {},
     query: PaginationQueryDto = {},
   ): Promise<PaginatedResponseDto<TaskResponseDto>> {
     const { page, limit, skip } = paginationArgs(query);
-    const where = {
+
+    const where: Record<string, unknown> = {
       projectId,
-      deletedAt: null as null,
-      ...(filters?.status && { status: filters.status as any }),
-      ...(filters?.assignedToId && { assignedToId: filters.assignedToId }),
+      deletedAt: null,
     };
 
+    if (filters.status) {
+      where.status = filters.status;
+    }
+    if (filters.assignedToId) {
+      where.assignedToId = filters.assignedToId;
+    }
+    if (filters.q?.trim()) {
+      where.OR = [
+        { title: { contains: filters.q.trim(), mode: 'insensitive' } },
+        { description: { contains: filters.q.trim(), mode: 'insensitive' } },
+      ];
+    }
+    if (filters.dueBefore || filters.dueAfter) {
+      where.dueDate = {
+        ...(filters.dueAfter && { gte: new Date(filters.dueAfter) }),
+        ...(filters.dueBefore && { lte: new Date(filters.dueBefore) }),
+      };
+    }
+
     const [total, data] = await Promise.all([
-      this.prisma.task.count({ where }),
+      this.prisma.task.count({ where: where as any }),
       this.prisma.task.findMany({
-        where,
+        where: where as any,
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
@@ -119,6 +149,14 @@ export class TasksService {
     await this.findOne(id);
 
     const now = new Date();
+
+    const comments = await this.prisma.comment.findMany({
+      where: { taskId: id, deletedAt: null },
+      select: { id: true },
+    });
+
+    await this.attachmentsService.removeForComments(comments.map((c) => c.id));
+    await this.attachmentsService.removeForTasks([id]);
 
     await this.prisma.comment.updateMany({
       where: { taskId: id, deletedAt: null },
