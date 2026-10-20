@@ -18,17 +18,23 @@ import { LocalAuthGuard } from './guards/local-auth.guard';
 import { ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { LoginDto } from './dto/login.dto';
+import {
+  SimpleThrottlerGuard,
+  Throttle,
+} from '../common/throttler/simple-throttler.guard';
 
 const REFRESH_COOKIE_NAME = 'refreshToken';
 const REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
 @Controller('auth')
+@UseGuards(SimpleThrottlerGuard)
 export class AuthController {
   constructor(private authService: AuthService) {}
 
   @ApiOperation({ summary: 'Register a new user' })
   @ApiResponse({ status: 201, type: AuthResponseDto })
   @ApiResponse({ status: 409, description: 'Email already registered' })
+  @Throttle({ limit: 5, windowMs: 60_000 })
   @Post('register')
   async register(
     @Body() dto: RegisterDto,
@@ -42,6 +48,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Login with email and password' })
   @ApiResponse({ status: 200, type: AuthResponseDto })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
+  @Throttle({ limit: 10, windowMs: 60_000 })
   @UseGuards(LocalAuthGuard)
   @HttpCode(200)
   @Post('login')
@@ -66,6 +73,7 @@ export class AuthController {
 
   @ApiOperation({ summary: 'Refresh access token using refresh token' })
   @ApiBearerAuth('access-token')
+  @Throttle({ limit: 20, windowMs: 60_000 })
   @Post('refresh')
   async refresh(
     @Request() req: ExpressRequest,
@@ -85,6 +93,7 @@ export class AuthController {
 
   @ApiOperation({ summary: 'Logout and clear refresh token' })
   @ApiBearerAuth('access-token')
+  @Throttle({ limit: 20, windowMs: 60_000 })
   @Post('logout')
   async logout(
     @Request() req: ExpressRequest,

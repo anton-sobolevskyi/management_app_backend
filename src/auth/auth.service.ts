@@ -7,6 +7,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
+import { hashToken } from '../common/utils/token-hash';
 
 @Injectable()
 export class AuthService {
@@ -18,8 +19,8 @@ export class AuthService {
   async register(
     dto: RegisterDto,
   ): Promise<{ accessToken: string; refreshToken: string }> {
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+    const existingUser = await this.prisma.user.findFirst({
+      where: { email: dto.email, deletedAt: null },
     });
 
     if (existingUser) {
@@ -40,7 +41,9 @@ export class AuthService {
   }
 
   async validateUser(email: string, password: string) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const user = await this.prisma.user.findFirst({
+      where: { email, deletedAt: null },
+    });
 
     if (!user) {
       return null;
@@ -65,12 +68,19 @@ export class AuthService {
   }
 
   async refreshTokens(refreshToken: string) {
+    const tokenHash = hashToken(refreshToken);
+
     const stored = await this.prisma.refreshToken.findUnique({
-      where: { token: refreshToken },
+      where: { token: tokenHash },
       include: { user: true },
     });
 
-    if (!stored || stored.revoked || stored.expiresAt < new Date()) {
+    if (
+      !stored ||
+      stored.revoked ||
+      stored.expiresAt < new Date() ||
+      stored.user.deletedAt
+    ) {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
@@ -83,8 +93,9 @@ export class AuthService {
   }
 
   async logout(refreshToken: string) {
+    const tokenHash = hashToken(refreshToken);
     await this.prisma.refreshToken.updateMany({
-      where: { token: refreshToken },
+      where: { token: tokenHash },
       data: { revoked: true },
     });
   }
@@ -104,7 +115,7 @@ export class AuthService {
 
     await this.prisma.refreshToken.create({
       data: {
-        token: refreshToken,
+        token: hashToken(refreshToken),
         userId,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
