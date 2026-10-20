@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AttachmentsController } from './attachments.controller';
 import { AttachmentsService } from './attachments.service';
+import { ProjectMemberGuard } from '../common/authorization/project-member.guard';
 
 describe('AttachmentsController', () => {
   let controller: AttachmentsController;
@@ -25,7 +26,10 @@ describe('AttachmentsController', () => {
           },
         },
       ],
-    }).compile();
+    })
+      .overrideGuard(ProjectMemberGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<AttachmentsController>(AttachmentsController);
     service = module.get<AttachmentsService>(AttachmentsService);
@@ -33,25 +37,47 @@ describe('AttachmentsController', () => {
 
   describe('uploadForTask', () => {
     it('should call service.uploadForTask', async () => {
-      jest.spyOn(service, 'uploadForTask').mockResolvedValue({ id: 'att1' } as any);
-      const result = await controller.uploadForTask('task1', mockFile, mockRequest);
+      jest
+        .spyOn(service, 'uploadForTask')
+        .mockResolvedValue({ id: 'att1' } as any);
+      const result = await controller.uploadForTask(
+        'task1',
+        mockFile,
+        mockRequest,
+      );
       expect(result.id).toBe('att1');
-      expect(service.uploadForTask).toHaveBeenCalledWith('task1', mockFile, 'user123');
+      expect(service.uploadForTask).toHaveBeenCalledWith(
+        'task1',
+        mockFile,
+        'user123',
+      );
     });
   });
 
   describe('uploadForComment', () => {
     it('should call service.uploadForComment', async () => {
-      jest.spyOn(service, 'uploadForComment').mockResolvedValue({ id: 'att1' } as any);
-      const result = await controller.uploadForComment('comm1', mockFile, mockRequest);
+      jest
+        .spyOn(service, 'uploadForComment')
+        .mockResolvedValue({ id: 'att1' } as any);
+      const result = await controller.uploadForComment(
+        'comm1',
+        mockFile,
+        mockRequest,
+      );
       expect(result.id).toBe('att1');
-      expect(service.uploadForComment).toHaveBeenCalledWith('comm1', mockFile, 'user123');
+      expect(service.uploadForComment).toHaveBeenCalledWith(
+        'comm1',
+        mockFile,
+        'user123',
+      );
     });
   });
 
   describe('uploadAvatar', () => {
     it('should call service.uploadAvatar', async () => {
-      jest.spyOn(service, 'uploadAvatar').mockResolvedValue({ id: 'att1' } as any);
+      jest
+        .spyOn(service, 'uploadAvatar')
+        .mockResolvedValue({ id: 'att1' } as any);
       const result = await controller.uploadAvatar(mockFile, mockRequest);
       expect(result.id).toBe('att1');
       expect(service.uploadAvatar).toHaveBeenCalledWith('user123', mockFile);
@@ -68,7 +94,11 @@ describe('AttachmentsController', () => {
 
   describe('getDownloadUrl', () => {
     it('should call service.getDownloadUrl', async () => {
-      jest.spyOn(service, 'getDownloadUrl').mockResolvedValue({ url: 'http://url', fileName: 'test.jpg', mimeType: 'image/jpeg' } as any);
+      jest.spyOn(service, 'getDownloadUrl').mockResolvedValue({
+        url: 'http://url',
+        fileName: 'test.jpg',
+        mimeType: 'image/jpeg',
+      } as any);
       await controller.getDownloadUrl('att1');
       expect(service.getDownloadUrl).toHaveBeenCalledWith('att1');
     });

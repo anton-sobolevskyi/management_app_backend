@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TasksController } from './tasks.controller';
 import { TasksService } from './tasks.service';
+import { ProjectMemberGuard } from '../common/authorization/project-member.guard';
 
 describe('TasksController', () => {
   let controller: TasksController;
@@ -14,7 +15,10 @@ describe('TasksController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [TasksController],
       providers: [{ provide: TasksService, useValue: mockTasksService }],
-    }).compile();
+    })
+      .overrideGuard(ProjectMemberGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<TasksController>(TasksController);
     service = module.get<TasksService>(TasksService);
@@ -23,9 +27,9 @@ describe('TasksController', () => {
   it('should call service.create with correct params', async () => {
     const dto = { title: 'New Task' } as any;
     const req = { user: { userId: 'user-1' } } as any;
-    
+
     await controller.create('proj-1', dto, req);
-    
+
     expect(service.create).toHaveBeenCalledWith('proj-1', dto, 'user-1');
   });
 });
