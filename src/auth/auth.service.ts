@@ -64,6 +64,7 @@ export class AuthService {
     userId: string,
     email: string,
   ): Promise<{ accessToken: string; refreshToken: string }> {
+    await this.purgeExpiredTokens();
     return this.generateTokens(userId, email);
   }
 
@@ -89,6 +90,7 @@ export class AuthService {
       data: { revoked: true },
     });
 
+    await this.purgeExpiredTokens();
     return this.generateTokens(stored.user.id, stored.user.email);
   }
 
@@ -97,6 +99,19 @@ export class AuthService {
     await this.prisma.refreshToken.updateMany({
       where: { token: tokenHash },
       data: { revoked: true },
+    });
+  }
+
+  /** Delete expired or long-revoked refresh tokens to keep the table lean. */
+  async purgeExpiredTokens() {
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    await this.prisma.refreshToken.deleteMany({
+      where: {
+        OR: [
+          { expiresAt: { lt: new Date() } },
+          { revoked: true, createdAt: { lt: cutoff } },
+        ],
+      },
     });
   }
 

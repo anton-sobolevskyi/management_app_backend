@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import { ValidationPipe } from '@nestjs/common';
 import { validateEnv } from './config/env.validation';
 import { generateRequestId } from './common/utils/token-hash';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
   validateEnv();
@@ -13,8 +14,8 @@ async function bootstrap() {
 
   app.use(cookieParser());
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  app.useGlobalFilters(new AllExceptionsFilter());
 
-  // Basic security headers (helmet-compatible subset without extra dependency)
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
@@ -32,7 +33,6 @@ async function bootstrap() {
     next();
   });
 
-  // Request ID for correlation
   app.use((req, res, next) => {
     const incoming = req.headers['x-request-id'];
     const requestId =

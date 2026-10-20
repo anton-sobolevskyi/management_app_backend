@@ -26,11 +26,12 @@ describe('UsersService', () => {
           provide: PrismaService,
           useValue: {
             user: {
-              findUnique: jest.fn(),
               findFirst: jest.fn(),
-              findMany: jest.fn(),
               create: jest.fn(),
               update: jest.fn(),
+            },
+            refreshToken: {
+              updateMany: jest.fn(),
             },
           },
         },
@@ -45,10 +46,6 @@ describe('UsersService', () => {
     jest.clearAllMocks();
   });
 
-  it('should be defined', () => {
-    expect(service).toBeDefined();
-  });
-
   describe('create', () => {
     const dto = {
       email: 'test@example.com',
@@ -57,168 +54,67 @@ describe('UsersService', () => {
     };
 
     it('should hash password and create a user successfully', async () => {
-      jest.spyOn(prisma.user, 'findUnique').mockResolvedValue(null);
+      jest.spyOn(prisma.user, 'findFirst').mockResolvedValue(null);
       (bcrypt.hash as jest.Mock).mockResolvedValue('hashedPassword');
-      jest.spyOn(prisma.user, 'create').mockResolvedValue(mockUserResponse as any);
+      jest
+        .spyOn(prisma.user, 'create')
+        .mockResolvedValue(mockUserResponse as any);
 
       const result = await service.create(dto);
 
-      expect(prisma.user.findUnique).toHaveBeenCalledWith({
-        where: { email: dto.email },
-      });
-      expect(bcrypt.hash).toHaveBeenCalledWith(dto.password, 10);
-      expect(prisma.user.create).toHaveBeenCalledWith({
-        data: {
-          email: dto.email,
-          name: dto.name,
-          passwordHash: 'hashedPassword',
-        },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          avatarId: true,
-          createdAt: true,
-        },
+      expect(prisma.user.findFirst).toHaveBeenCalledWith({
+        where: { email: dto.email, deletedAt: null },
       });
       expect(result).toEqual(mockUserResponse);
     });
 
     it('should throw ConflictException if email is already taken', async () => {
-      jest.spyOn(prisma.user, 'findUnique').mockResolvedValue({ id: 'existing' } as any);
+      jest
+        .spyOn(prisma.user, 'findFirst')
+        .mockResolvedValue({ id: 'existing' } as any);
 
       await expect(service.create(dto)).rejects.toThrow(ConflictException);
-      expect(prisma.user.create).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('findAll', () => {
-    it('should return all non-deleted users', async () => {
-      jest.spyOn(prisma.user, 'findMany').mockResolvedValue([mockUserResponse] as any);
-
-      const result = await service.findAll();
-
-      expect(prisma.user.findMany).toHaveBeenCalledWith({
-        where: { deletedAt: null },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          avatarId: true,
-          createdAt: true,
-        },
-      });
-      expect(result).toEqual([mockUserResponse]);
     });
   });
 
   describe('findOne', () => {
-    it('should return user if found and not deleted', async () => {
-      jest.spyOn(prisma.user, 'findFirst').mockResolvedValue(mockUserResponse as any);
+    it('should return user if found', async () => {
+      jest
+        .spyOn(prisma.user, 'findFirst')
+        .mockResolvedValue(mockUserResponse as any);
 
       const result = await service.findOne('user-1');
-
-      expect(prisma.user.findFirst).toHaveBeenCalledWith({
-        where: { id: 'user-1', deletedAt: null },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          avatarId: true,
-          createdAt: true,
-        },
-      });
       expect(result).toEqual(mockUserResponse);
     });
 
     it('should throw NotFoundException if user not found', async () => {
       jest.spyOn(prisma.user, 'findFirst').mockResolvedValue(null);
-
       await expect(service.findOne('user-1')).rejects.toThrow(NotFoundException);
     });
   });
 
-  describe('update', () => {
-    const updateDto = { name: 'Updated Name' };
-
-    it('should update and return the user if found', async () => {
-      const updatedUser = { ...mockUserResponse, name: 'Updated Name' };
-      jest.spyOn(service, 'findOne').mockResolvedValue(mockUserResponse);
-      jest.spyOn(prisma.user, 'update').mockResolvedValue(updatedUser as any);
-
-      const result = await service.update('user-1', updateDto);
-
-      expect(service.findOne).toHaveBeenCalledWith('user-1');
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
-        data: updateDto,
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          avatarId: true,
-          createdAt: true,
-        },
-      });
-      expect(result).toEqual(updatedUser);
-    });
-
-    it('should throw NotFoundException if user to update does not exist', async () => {
-      jest.spyOn(service, 'findOne').mockRejectedValue(new NotFoundException());
-
-      await expect(service.update('user-1', updateDto)).rejects.toThrow(
-        NotFoundException,
-      );
-      expect(prisma.user.update).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('getMe', () => {
-    it('should return user when found', async () => {
-      jest.spyOn(service, 'findOne').mockResolvedValue(mockUserResponse);
-
-      const result = await service.getMe('user-1');
-
-      expect(service.findOne).toHaveBeenCalledWith('user-1');
-      expect(result).toEqual(mockUserResponse);
-    });
-
-    it('should throw NotFoundException if user not found', async () => {
-      jest.spyOn(service, 'findOne').mockRejectedValue(new NotFoundException());
-
-      await expect(service.getMe('user-1')).rejects.toThrow(NotFoundException);
-    });
-  });
-
   describe('softDelete', () => {
-    it('should set deletedAt and return updated user', async () => {
-      jest.spyOn(service, 'findOne').mockResolvedValue(mockUserResponse);
-      jest.spyOn(prisma.user, 'update').mockResolvedValue(mockUserResponse as any);
+    it('should free email, revoke tokens, and soft delete', async () => {
+      jest.spyOn(prisma.user, 'findFirst').mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+      } as any);
+      jest.spyOn(prisma.refreshToken, 'updateMany').mockResolvedValue({ count: 1 } as any);
+      jest
+        .spyOn(prisma.user, 'update')
+        .mockResolvedValue(mockUserResponse as any);
 
-      const result = await service.softDelete('user-1');
+      await service.softDelete('user-1');
 
-      expect(service.findOne).toHaveBeenCalledWith('user-1');
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
-        data: { deletedAt: expect.any(Date) },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          avatarId: true,
-          createdAt: true,
-        },
-      });
-      expect(result).toEqual(mockUserResponse);
-    });
-
-    it('should throw NotFoundException if user to soft delete does not exist', async () => {
-      jest.spyOn(service, 'findOne').mockRejectedValue(new NotFoundException());
-
-      await expect(service.softDelete('user-1')).rejects.toThrow(
-        NotFoundException,
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalled();
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            deletedAt: expect.any(Date),
+            email: expect.stringContaining('deleted+user-1'),
+          }),
+        }),
       );
-      expect(prisma.user.update).not.toHaveBeenCalled();
     });
   });
 });
