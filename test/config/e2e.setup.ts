@@ -1,37 +1,13 @@
-import {
-  PostgreSqlContainer,
-  StartedPostgreSqlContainer,
-} from '@testcontainers/postgresql';
-import { execSync } from 'child_process';
-import { config } from 'dotenv';
+import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
+import { config } from 'dotenv';
 
 config({ path: resolve(__dirname, '../.env.test'), override: true });
 
-let postgresContainer: StartedPostgreSqlContainer;
+const DB_URL_FILE = resolve(__dirname, '../.e2e-state/database-url');
+
+if (existsSync(DB_URL_FILE)) {
+  process.env.DATABASE_URL = readFileSync(DB_URL_FILE, 'utf8').trim();
+}
 
 jest.setTimeout(60000);
-
-beforeAll(async () => {
-  postgresContainer = await new PostgreSqlContainer('postgres:16-alpine')
-    .withDatabase('test_db')
-    .withUsername('test_user')
-    .withPassword('test_password')
-    .start();
-
-  const dbUrl = postgresContainer.getConnectionUri();
-  process.env.DATABASE_URL = dbUrl;
-
-  // Migrate only — client is generated once before the Jest process starts
-  // (mise test-e2e / CI). Avoid concurrent prisma generate across workers.
-  execSync('npx prisma migrate deploy', {
-    env: { ...process.env },
-    stdio: 'inherit',
-  });
-});
-
-afterAll(async () => {
-  if (postgresContainer) {
-    await postgresContainer.stop();
-  }
-});

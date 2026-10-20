@@ -41,7 +41,6 @@ describe('Authorization (e2e)', () => {
 
     commentId = comment.body.id;
 
-    // Add member to the project
     await request(app.getHttpServer())
       .post(`/projects/${projectId}/members`)
       .set('Authorization', `Bearer ${owner.accessToken}`)
@@ -132,14 +131,34 @@ describe('Authorization (e2e)', () => {
   });
 
   describe('project members API', () => {
-    it('lists members for a project member', async () => {
+    it('lists members for a project member (paginated)', async () => {
       const res = await request(app.getHttpServer())
         .get(`/projects/${projectId}/members`)
         .set('Authorization', `Bearer ${member.accessToken}`)
         .expect(200);
 
-      expect(Array.isArray(res.body)).toBe(true);
-      expect(res.body.length).toBeGreaterThanOrEqual(2);
+      expect(Array.isArray(res.body.data)).toBe(true);
+      expect(res.body.meta.total).toBeGreaterThanOrEqual(2);
+    });
+
+    it('MEMBER can leave the project (self-remove)', async () => {
+      const leaver = await registerUser(app, { name: 'Leaver' });
+
+      const added = await request(app.getHttpServer())
+        .post(`/projects/${projectId}/members`)
+        .set('Authorization', `Bearer ${owner.accessToken}`)
+        .send({ email: leaver.email, role: 'MEMBER' })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .delete(`/projects/${projectId}/members/${added.body.userId}`)
+        .set('Authorization', `Bearer ${leaver.accessToken}`)
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .get(`/projects/${projectId}`)
+        .set('Authorization', `Bearer ${leaver.accessToken}`)
+        .expect(404);
     });
 
     it('MEMBER cannot add members (403)', () => {
@@ -165,7 +184,6 @@ describe('Authorization (e2e)', () => {
         .send({ name: 'Updated by admin' })
         .expect(200);
 
-      // ADMIN still cannot delete project
       await request(app.getHttpServer())
         .delete(`/projects/${projectId}`)
         .set('Authorization', `Bearer ${admin.accessToken}`)
@@ -173,13 +191,12 @@ describe('Authorization (e2e)', () => {
     });
 
     it('cannot remove the last OWNER', async () => {
-      // Resolve owner userId from members list
       const res = await request(app.getHttpServer())
         .get(`/projects/${projectId}/members`)
         .set('Authorization', `Bearer ${owner.accessToken}`)
         .expect(200);
 
-      const ownerMember = res.body.find(
+      const ownerMember = res.body.data.find(
         (m: { role: string }) => m.role === 'OWNER',
       );
       expect(ownerMember).toBeDefined();
@@ -204,7 +221,6 @@ describe('Authorization (e2e)', () => {
         .set('Authorization', `Bearer ${owner.accessToken}`)
         .expect(200);
 
-      // Removed user no longer sees the project
       await request(app.getHttpServer())
         .get(`/projects/${projectId}`)
         .set('Authorization', `Bearer ${disposable.accessToken}`)
