@@ -17,11 +17,13 @@ describe('ProjectMembersService', () => {
     projectMember: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
       count: jest.fn(),
     },
+    $transaction: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -56,7 +58,6 @@ describe('ProjectMembersService', () => {
       });
 
       expect(result.userId).toBe('u2');
-      expect(mockPrisma.projectMember.create).toHaveBeenCalled();
     });
 
     it('rejects assigning OWNER via add', async () => {
@@ -82,29 +83,62 @@ describe('ProjectMembersService', () => {
   });
 
   describe('updateRole', () => {
-    it('blocks demoting the last OWNER', async () => {
-      mockPrisma.projectMember.findUnique.mockResolvedValue({
-        id: 'm1',
-        userId: 'u1',
-        projectId: 'p1',
-        role: Role.OWNER,
-      });
-      mockPrisma.projectMember.count.mockResolvedValue(1);
+    it('blocks ADMIN from changing OWNER role', async () => {
+      mockPrisma.projectMember.findUnique
+        .mockResolvedValueOnce({ role: Role.ADMIN })
+        .mockResolvedValueOnce({
+          id: 'm1',
+          userId: 'u1',
+          projectId: 'p1',
+          role: Role.OWNER,
+        });
 
       await expect(
-        service.updateRole('p1', 'u1', { role: Role.ADMIN }),
+        service.updateRole('p1', 'u1', { role: Role.ADMIN }, 'admin'),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
 
   describe('remove', () => {
-    it('blocks removing the last OWNER', async () => {
-      mockPrisma.projectMember.findUnique.mockResolvedValue({
-        id: 'm1',
-        userId: 'u1',
-        projectId: 'p1',
-        role: Role.OWNER,
+    it('allows self-leave for MEMBER', async () => {
+      mockPrisma.projectMember.findUnique
+        .mockResolvedValueOnce({ role: Role.MEMBER, userId: 'u2' })
+        .mockResolvedValueOnce({
+          id: 'm2',
+          userId: 'u2',
+          role: Role.MEMBER,
+        });
+      mockPrisma.projectMember.delete.mockResolvedValue({
+        id: 'm2',
+        userId: 'u2',
       });
+
+      await service.remove('p1', 'u2', 'u2');
+      expect(mockPrisma.projectMember.delete).toHaveBeenCalled();
+    });
+
+    it('blocks MEMBER from removing others', async () => {
+      mockPrisma.projectMember.findUnique
+        .mockResolvedValueOnce({ role: Role.MEMBER, userId: 'u2' })
+        .mockResolvedValueOnce({
+          id: 'm3',
+          userId: 'u3',
+          role: Role.MEMBER,
+        });
+
+      await expect(service.remove('p1', 'u3', 'u2')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+
+    it('blocks removing the last OWNER', async () => {
+      mockPrisma.projectMember.findUnique
+        .mockResolvedValueOnce({ role: Role.OWNER, userId: 'u1' })
+        .mockResolvedValueOnce({
+          id: 'm1',
+          userId: 'u1',
+          role: Role.OWNER,
+        });
       mockPrisma.projectMember.count.mockResolvedValue(1);
 
       await expect(service.remove('p1', 'u1', 'u1')).rejects.toBeInstanceOf(

@@ -10,6 +10,12 @@ import { Role } from '../generated/prisma/enums';
 import { AddProjectMemberDto } from './dto/add-project-member.dto';
 import { UpdateProjectMemberDto } from './dto/update-project-member.dto';
 import { ProjectMemberResponseDto } from './dto/project-member-response.dto';
+import {
+  PaginatedResponseDto,
+  PaginationQueryDto,
+  paginate,
+  paginationArgs,
+} from '../common/dto/pagination.dto';
 
 const memberUserSelect = {
   id: true,
@@ -23,12 +29,25 @@ const memberUserSelect = {
 export class ProjectMembersService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(projectId: string): Promise<ProjectMemberResponseDto[]> {
-    return this.prisma.projectMember.findMany({
-      where: { projectId },
-      include: { user: { select: memberUserSelect } },
-      orderBy: { joinedAt: 'asc' },
-    });
+  async findAll(
+    projectId: string,
+    query: PaginationQueryDto = {},
+  ): Promise<PaginatedResponseDto<ProjectMemberResponseDto>> {
+    const { page, limit, skip } = paginationArgs(query);
+    const where = { projectId };
+
+    const [total, data] = await Promise.all([
+      this.prisma.projectMember.count({ where }),
+      this.prisma.projectMember.findMany({
+        where,
+        include: { user: { select: memberUserSelect } },
+        orderBy: { joinedAt: 'asc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    return paginate(data, total, page, limit);
   }
 
   async add(
@@ -39,7 +58,7 @@ export class ProjectMembersService {
 
     if (role === Role.OWNER) {
       throw new BadRequestException(
-        'Cannot assign OWNER via invite; transfer ownership separately',
+        'Cannot assign OWNER via invite; use transfer ownership',
       );
     }
 
@@ -75,7 +94,18 @@ export class ProjectMembersService {
     projectId: string,
     targetUserId: string,
     dto: UpdateProjectMemberDto,
+    actorUserId: string,
   ): Promise<ProjectMemberResponseDto> {
+    const actor = await this.prisma.projectMember.findUnique({
+      where: {
+        userId_projectId: { userId: actorUserId, projectId },
+      },
+    });
+
+    if (!actor) {
+      throw new NotFoundException('Project not found');
+    }
+
     const membership = await this.prisma.projectMember.findUnique({
       where: {
         userId_projectId: { userId: targetUserId, projectId },
@@ -86,13 +116,17 @@ export class ProjectMembersService {
       throw new NotFoundException('Member not found');
     }
 
-    if (membership.role === Role.OWNER && dto.role !== Role.OWNER) {
-      await this.assertNotLastOwner(projectId);
+    // Only OWNER may grant or change OWNER role
+    if (dto.role === Role.OWNER || membership.role === Role.OWNER) {
+      if (actor.role !== Role.OWNER) {
+        throw new ForbiddenException(
+          'Only the project OWNER can change OWNER roles',
+        );
+      }
     }
 
-    if (dto.role === Role.OWNER && membership.role !== Role.OWNER) {
-      // Promoting to OWNER is allowed for OWNER/ADMIN callers (guard),
-      // but we keep at least one OWNER by not demoting others here.
+    if (membership.role === Role.OWNER && dto.role !== Role.OWNER) {
+      await this.assertNotLastOwner(projectId);
     }
 
     return this.prisma.projectMember.update({
@@ -102,11 +136,71 @@ export class ProjectMembersService {
     });
   }
 
+  /**
+   * Transfer OWNER to another member in one transaction.
+   * Previous owner becomes ADMIN.
+   */
+  async transferOwnership(
+    projectId: string,
+    newOwnerUserId: string,
+    actorUserId: string,
+  ): Promise<ProjectMemberResponseDto> {
+    const actor = await this.prisma.projectMember.findUnique({
+      where: {
+        userId_projectId: { userId: actorUserId, projectId },
+      },
+    });
+
+    if (!actor || actor.role !== Role.OWNER) {
+      throw new ForbiddenException('Only the OWNER can transfer ownership');
+    }
+
+    if (newOwnerUserId === actorUserId) {
+      throw new BadRequestException('You are already the OWNER');
+    }
+
+    const target = await this.prisma.projectMember.findUnique({
+      where: {
+        userId_projectId: { userId: newOwnerUserId, projectId },
+      },
+    });
+
+    if (!target) {
+      throw new NotFoundException('Target user is not a project member');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.projectMember.update({
+        where: { id: actor.id },
+        data: { role: Role.ADMIN },
+      }),
+      this.prisma.projectMember.update({
+        where: { id: target.id },
+        data: { role: Role.OWNER },
+      }),
+    ]);
+
+    return this.prisma.projectMember.findUniqueOrThrow({
+      where: { id: target.id },
+      include: { user: { select: memberUserSelect } },
+    });
+  }
+
   async remove(
     projectId: string,
     targetUserId: string,
     actorUserId: string,
   ): Promise<ProjectMemberResponseDto> {
+    const actor = await this.prisma.projectMember.findUnique({
+      where: {
+        userId_projectId: { userId: actorUserId, projectId },
+      },
+    });
+
+    if (!actor) {
+      throw new NotFoundException('Project not found');
+    }
+
     const membership = await this.prisma.projectMember.findUnique({
       where: {
         userId_projectId: { userId: targetUserId, projectId },
@@ -117,21 +211,28 @@ export class ProjectMembersService {
       throw new NotFoundException('Member not found');
     }
 
-    if (membership.role === Role.OWNER) {
-      await this.assertNotLastOwner(projectId);
+    const isSelf = targetUserId === actorUserId;
+    const actorIsAdmin =
+      actor.role === Role.OWNER || actor.role === Role.ADMIN;
+
+    // Self-leave allowed for any member; removing others requires OWNER/ADMIN
+    if (!isSelf && !actorIsAdmin) {
+      throw new ForbiddenException(
+        'Only OWNER or ADMIN can remove other members',
+      );
     }
 
-    // Optional: prevent non-owners from removing themselves if you want;
-    // self-leave is allowed for non-last OWNER.
-    if (targetUserId === actorUserId && membership.role === Role.OWNER) {
-      const ownerCount = await this.prisma.projectMember.count({
-        where: { projectId, role: Role.OWNER },
-      });
-      if (ownerCount <= 1) {
-        throw new ForbiddenException(
-          'Cannot leave as the last OWNER; transfer ownership first',
-        );
-      }
+    // ADMIN cannot remove OWNER
+    if (
+      !isSelf &&
+      membership.role === Role.OWNER &&
+      actor.role !== Role.OWNER
+    ) {
+      throw new ForbiddenException('Only OWNER can remove another OWNER');
+    }
+
+    if (membership.role === Role.OWNER) {
+      await this.assertNotLastOwner(projectId);
     }
 
     return this.prisma.projectMember.delete({

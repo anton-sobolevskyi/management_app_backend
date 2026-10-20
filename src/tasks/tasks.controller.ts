@@ -14,6 +14,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ProjectMemberGuard } from '../common/authorization/project-member.guard';
 import type { Request as ExpressRequest } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { PaginationQueryDto } from '../common/dto/pagination.dto';
 
 @ApiTags('project tasks')
 @UseGuards(JwtAuthGuard, ProjectMemberGuard)
@@ -32,13 +33,14 @@ export class TasksController {
     return this.tasksService.create(projectId, dto, req.user!['userId']);
   }
 
-  @ApiOperation({ summary: 'Get all tasks in a project' })
+  @ApiOperation({ summary: 'Get paginated tasks in a project' })
   @Get()
   findAll(
     @Param('projectId') projectId: string,
+    @Query() query: PaginationQueryDto,
     @Query('status') status?: string,
     @Query('assignedToId') assignedToId?: string,
   ) {
-    return this.tasksService.findAll(projectId, { status, assignedToId });
+    return this.tasksService.findAll(projectId, { status, assignedToId }, query);
   }
 }

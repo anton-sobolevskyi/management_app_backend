@@ -6,6 +6,7 @@ import {
   Delete,
   Param,
   Body,
+  Query,
   Request,
   UseGuards,
 } from '@nestjs/common';
@@ -24,6 +25,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ProjectMemberResponseDto } from './dto/project-member-response.dto';
+import { PaginationQueryDto } from '../common/dto/pagination.dto';
 
 @ApiTags('project members')
 @UseGuards(JwtAuthGuard, ProjectMemberGuard)
@@ -33,10 +35,13 @@ export class ProjectMembersController {
   constructor(private membersService: ProjectMembersService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List project members' })
+  @ApiOperation({ summary: 'List project members (paginated)' })
   @ApiOkResponse({ type: [ProjectMemberResponseDto] })
-  findAll(@Param('projectId') projectId: string) {
-    return this.membersService.findAll(projectId);
+  findAll(
+    @Param('projectId') projectId: string,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.membersService.findAll(projectId, query);
   }
 
   @Post()
@@ -52,19 +57,47 @@ export class ProjectMembersController {
 
   @Patch(':userId')
   @Roles(Role.OWNER, Role.ADMIN)
-  @ApiOperation({ summary: 'Update a member role' })
+  @ApiOperation({
+    summary: 'Update a member role (OWNER required to change OWNER)',
+  })
   @ApiOkResponse({ type: ProjectMemberResponseDto })
   updateRole(
     @Param('projectId') projectId: string,
     @Param('userId') userId: string,
     @Body() dto: UpdateProjectMemberDto,
+    @Request() req: ExpressRequest,
   ) {
-    return this.membersService.updateRole(projectId, userId, dto);
+    return this.membersService.updateRole(
+      projectId,
+      userId,
+      dto,
+      req.user!['userId'],
+    );
+  }
+
+  @Post(':userId/transfer-ownership')
+  @Roles(Role.OWNER)
+  @ApiOperation({
+    summary: 'Transfer project ownership (previous OWNER becomes ADMIN)',
+  })
+  @ApiOkResponse({ type: ProjectMemberResponseDto })
+  transferOwnership(
+    @Param('projectId') projectId: string,
+    @Param('userId') userId: string,
+    @Request() req: ExpressRequest,
+  ) {
+    return this.membersService.transferOwnership(
+      projectId,
+      userId,
+      req.user!['userId'],
+    );
   }
 
   @Delete(':userId')
-  @Roles(Role.OWNER, Role.ADMIN)
-  @ApiOperation({ summary: 'Remove a project member' })
+  @ApiOperation({
+    summary:
+      'Remove a member, or leave the project (self). Removing others requires OWNER/ADMIN.',
+  })
   @ApiOkResponse({ type: ProjectMemberResponseDto })
   remove(
     @Param('projectId') projectId: string,

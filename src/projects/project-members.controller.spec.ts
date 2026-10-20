@@ -13,6 +13,7 @@ describe('ProjectMembersController', () => {
     add: jest.fn(),
     updateRole: jest.fn(),
     remove: jest.fn(),
+    transferOwnership: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -30,9 +31,9 @@ describe('ProjectMembersController', () => {
   });
 
   it('lists members', async () => {
-    mockService.findAll.mockResolvedValue([]);
-    await controller.findAll('p1');
-    expect(service.findAll).toHaveBeenCalledWith('p1');
+    mockService.findAll.mockResolvedValue({ data: [], meta: {} });
+    await controller.findAll('p1', {});
+    expect(service.findAll).toHaveBeenCalledWith('p1', {});
   });
 
   it('adds a member', async () => {
@@ -44,9 +45,10 @@ describe('ProjectMembersController', () => {
 
   it('updates role', async () => {
     const dto = { role: Role.ADMIN };
+    const req = { user: { userId: 'u1' } } as any;
     mockService.updateRole.mockResolvedValue({ id: 'm1' });
-    await controller.updateRole('p1', 'u2', dto);
-    expect(service.updateRole).toHaveBeenCalledWith('p1', 'u2', dto);
+    await controller.updateRole('p1', 'u2', dto, req);
+    expect(service.updateRole).toHaveBeenCalledWith('p1', 'u2', dto, 'u1');
   });
 
   it('removes a member', async () => {
