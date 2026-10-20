@@ -25,6 +25,7 @@ interface Bucket {
 /**
  * Lightweight in-memory IP rate limiter (no extra dependency).
  * Suitable for a single instance; use Redis-backed throttling at scale.
+ * Disabled when NODE_ENV=test so e2e can register many users quickly.
  */
 @Injectable()
 export class SimpleThrottlerGuard implements CanActivate {
@@ -33,10 +34,16 @@ export class SimpleThrottlerGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const options = this.reflector.getAllAndOverride<ThrottleOptions | undefined>(
-      THROTTLE_KEY,
-      [context.getHandler(), context.getClass()],
-    );
+    if (
+      process.env.NODE_ENV === 'test' ||
+      process.env.DISABLE_THROTTLE === 'true'
+    ) {
+      return true;
+    }
+
+    const options = this.reflector.getAllAndOverride<
+      ThrottleOptions | undefined
+    >(THROTTLE_KEY, [context.getHandler(), context.getClass()]);
 
     if (!options) {
       return true;
@@ -70,7 +77,6 @@ export class SimpleThrottlerGuard implements CanActivate {
       );
     }
 
-    // Occasional cleanup of expired buckets
     if (this.buckets.size > 10_000) {
       for (const [k, b] of this.buckets) {
         if (now >= b.resetAt) this.buckets.delete(k);
