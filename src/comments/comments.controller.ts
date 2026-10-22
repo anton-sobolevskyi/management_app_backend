@@ -13,13 +13,17 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ProjectMemberGuard } from '../common/authorization/project-member.guard';
 import { ProjectScope } from '../common/decorators/project-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { ApiBearerAuth, ApiOkResponse } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiProperty } from '@nestjs/swagger';
 import {
   PaginatedResponseDto,
-  PaginatedResponseDtoFor,
   PaginationQueryDto,
 } from '../common/dto/pagination.dto';
 import { CommentResponseDto } from './dto/comment-response.dto';
+
+export class PaginatedCommentResponseDto extends PaginatedResponseDto<CommentResponseDto> {
+  @ApiProperty({ type: () => CommentResponseDto, isArray: true })
+  declare data: CommentResponseDto[];
+}
 
 @UseGuards(JwtAuthGuard, ProjectMemberGuard)
 @ApiBearerAuth('access-token')
@@ -37,7 +41,7 @@ export class CommentsController {
     return this.commentsService.create(taskId, dto, userId);
   }
 
-  @ApiOkResponse({ type: PaginatedResponseDtoFor(CommentResponseDto) })
+  @ApiOkResponse({ type: PaginatedCommentResponseDto })
   @Get()
   findAll(@Param('taskId') taskId: string, @Query() query: PaginationQueryDto) {
     return this.commentsService.findAll(taskId, query);

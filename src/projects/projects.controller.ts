@@ -18,13 +18,22 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { ProjectScope } from '../common/decorators/project-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Role } from '../generated/prisma/enums';
-import { ApiBearerAuth, ApiOkResponse, ApiOperation } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiOperation,
+  ApiProperty,
+} from '@nestjs/swagger';
 import { ProjectResponseDto } from './dto/project-response.dto';
 import {
   PaginatedResponseDto,
-  PaginatedResponseDtoFor,
   PaginationQueryDto,
 } from '../common/dto/pagination.dto';
+
+export class PaginatedProjectResponseDto extends PaginatedResponseDto<ProjectResponseDto> {
+  @ApiProperty({ type: () => ProjectResponseDto, isArray: true })
+  declare data: ProjectResponseDto[];
+}
 
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('access-token')
@@ -38,7 +47,7 @@ export class ProjectsController {
     return this.projectsService.create(dto, userId);
   }
 
-  @ApiOkResponse({ type: PaginatedResponseDtoFor(ProjectResponseDto) })
+  @ApiOkResponse({ type: PaginatedProjectResponseDto })
   @Get()
   @ApiOperation({
     summary: 'Retrieve a paginated list of projects',

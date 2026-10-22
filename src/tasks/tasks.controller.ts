@@ -15,16 +15,20 @@ import { ProjectScope } from '../common/decorators/project-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import {
   ApiBearerAuth,
+  ApiExtraModels,
   ApiOkResponse,
   ApiOperation,
+  ApiProperty,
   ApiTags,
 } from '@nestjs/swagger';
 import { TaskQueryDto } from './dto/task-query.dto';
 import { TaskResponseDto } from './dto/task-response.dto';
-import {
-  PaginatedResponseDto,
-  PaginatedResponseDtoFor,
-} from '../common/dto/pagination.dto';
+import { PaginatedResponseDto } from '../common/dto/pagination.dto';
+
+export class PaginatedTaskResponseDto extends PaginatedResponseDto<TaskResponseDto> {
+  @ApiProperty({ type: () => TaskResponseDto, isArray: true })
+  declare data: TaskResponseDto[];
+}
 
 @ApiTags('project tasks')
 @UseGuards(JwtAuthGuard, ProjectMemberGuard)
@@ -44,7 +48,7 @@ export class TasksController {
     return this.tasksService.create(projectId, dto, userId);
   }
 
-  @ApiOkResponse({ type: PaginatedResponseDtoFor(TaskResponseDto) })
+  @ApiOkResponse({ type: PaginatedTaskResponseDto })
   @ApiOperation({
     summary: 'Get paginated tasks in a project',
     description:

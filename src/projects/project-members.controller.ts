@@ -26,14 +26,19 @@ import {
   ApiBearerAuth,
   ApiOkResponse,
   ApiOperation,
+  ApiProperty,
   ApiTags,
 } from '@nestjs/swagger';
 import { ProjectMemberResponseDto } from './dto/project-member-response.dto';
 import {
   PaginatedResponseDto,
-  PaginatedResponseDtoFor,
   PaginationQueryDto,
 } from '../common/dto/pagination.dto';
+
+export class PaginatedProjectMemberResponseDto extends PaginatedResponseDto<ProjectMemberResponseDto> {
+  @ApiProperty({ type: () => ProjectMemberResponseDto, isArray: true })
+  declare data: ProjectMemberResponseDto[];
+}
 
 @ApiTags('project members')
 @UseGuards(JwtAuthGuard, ProjectMemberGuard, SimpleThrottlerGuard)
@@ -45,7 +50,7 @@ export class ProjectMembersController {
 
   @Get()
   @ApiOperation({ summary: 'List project members (paginated)' })
-  @ApiOkResponse({ type: PaginatedResponseDtoFor(ProjectMemberResponseDto) })
+  @ApiOkResponse({ type: PaginatedProjectMemberResponseDto })
   findAll(
     @Param('projectId') projectId: string,
     @Query() query: PaginationQueryDto,
