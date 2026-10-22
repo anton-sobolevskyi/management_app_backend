@@ -29,7 +29,10 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ProjectMemberResponseDto } from './dto/project-member-response.dto';
-import { PaginationQueryDto } from '../common/dto/pagination.dto';
+import {
+  PaginatedResponseDto,
+  PaginationQueryDto,
+} from '../common/dto/pagination.dto';
 
 @ApiTags('project members')
 @UseGuards(JwtAuthGuard, ProjectMemberGuard, SimpleThrottlerGuard)
@@ -41,7 +44,7 @@ export class ProjectMembersController {
 
   @Get()
   @ApiOperation({ summary: 'List project members (paginated)' })
-  @ApiOkResponse({ type: [ProjectMemberResponseDto] })
+  @ApiOkResponse({ type: PaginatedResponseDto<ProjectMemberResponseDto> })
   findAll(
     @Param('projectId') projectId: string,
     @Query() query: PaginationQueryDto,

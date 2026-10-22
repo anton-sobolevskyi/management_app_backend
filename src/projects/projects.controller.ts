@@ -20,7 +20,10 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Role } from '../generated/prisma/enums';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation } from '@nestjs/swagger';
 import { ProjectResponseDto } from './dto/project-response.dto';
-import { PaginationQueryDto } from '../common/dto/pagination.dto';
+import {
+  PaginatedResponseDto,
+  PaginationQueryDto,
+} from '../common/dto/pagination.dto';
 
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('access-token')
@@ -34,7 +37,7 @@ export class ProjectsController {
     return this.projectsService.create(dto, userId);
   }
 
-  @ApiOkResponse({ type: [ProjectResponseDto] })
+  @ApiOkResponse({ type: PaginatedResponseDto<ProjectResponseDto> })
   @Get()
   @ApiOperation({
     summary: 'Retrieve a paginated list of projects',

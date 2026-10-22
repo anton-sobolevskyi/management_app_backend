@@ -13,8 +13,15 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ProjectMemberGuard } from '../common/authorization/project-member.guard';
 import { ProjectScope } from '../common/decorators/project-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import { TaskQueryDto } from './dto/task-query.dto';
+import { TaskResponseDto } from './dto/task-response.dto';
+import { PaginatedResponseDto } from '../common/dto/pagination.dto';
 
 @ApiTags('project tasks')
 @UseGuards(JwtAuthGuard, ProjectMemberGuard)
@@ -34,6 +41,7 @@ export class TasksController {
     return this.tasksService.create(projectId, dto, userId);
   }
 
+  @ApiOkResponse({ type: PaginatedResponseDto<TaskResponseDto> })
   @ApiOperation({
     summary: 'Get paginated tasks in a project',
     description:
