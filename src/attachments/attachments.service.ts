@@ -6,19 +6,27 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { S3Service } from '../s3/s3.service';
+import { AuthorizationService } from '../common/authorization/authorization.service';
 import { AttachmentType } from '../generated/prisma/enums';
+import type { Prisma } from '../generated/prisma/client';
 import { AttachmentResponseDto } from './dto/attachment-response.dto';
 import { DownloadUrlResponseDto } from './dto/download-url-response.dto';
+import {
+  ALLOWED_MIME_TYPES,
+  ATTACHMENT_PUBLIC_SELECT,
+  IMAGE_MIME_TYPES,
+  MAX_FILE_SIZE,
+} from './attachments.constants';
+import {
+  matchesDeclaredType,
+  sanitizeFileName,
+} from '../common/utils/file-signature';
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const ALLOWED_MIME_TYPES = [
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'application/pdf',
-  'application/msword',
-  'text/plain',
-];
+/** Where a stored file lives; enough to delete it from S3. */
+export interface StoredObject {
+  s3Bucket: string;
+  s3Key: string;
+}
 
 @Injectable()
 export class AttachmentsService {
@@ -27,6 +35,7 @@ export class AttachmentsService {
   constructor(
     private prisma: PrismaService,
     private s3Service: S3Service,
+    private authz: AuthorizationService,
   ) {}
 
   async uploadForTask(
@@ -38,30 +47,16 @@ export class AttachmentsService {
 
     const task = await this.prisma.task.findFirst({
       where: { id: taskId, deletedAt: null },
+      select: { id: true },
     });
 
     if (!task) {
       throw new NotFoundException('Task not found');
     }
 
-    const { key, bucket } = await this.s3Service.uploadFile(
-      file.buffer,
-      file.originalname,
-      file.mimetype,
-      `tasks/${taskId}`,
-    );
-
-    return this.prisma.attachment.create({
-      data: {
-        fileName: file.originalname,
-        mimeType: file.mimetype,
-        sizeBytes: file.size,
-        s3Key: key,
-        s3Bucket: bucket,
-        type: this.resolveType(file.mimetype),
-        uploadedById,
-        taskId,
-      },
+    return this.storeAndCreate(file, `tasks/${taskId}`, {
+      uploadedById,
+      taskId,
     });
   }
 
@@ -74,30 +69,23 @@ export class AttachmentsService {
 
     const comment = await this.prisma.comment.findFirst({
       where: { id: commentId, deletedAt: null },
+      select: {
+        id: true,
+        authorId: true,
+        task: { select: { projectId: true } },
+      },
     });
 
     if (!comment) {
       throw new NotFoundException('Comment not found');
     }
 
-    const { key, bucket } = await this.s3Service.uploadFile(
-      file.buffer,
-      file.originalname,
-      file.mimetype,
-      `comments/${commentId}`,
-    );
+    // Same rule as editing the comment itself: author or project OWNER/ADMIN
+    await this.authz.assertCommentAuthorOrAdmin(uploadedById, comment);
 
-    return this.prisma.attachment.create({
-      data: {
-        fileName: file.originalname,
-        mimeType: file.mimetype,
-        sizeBytes: file.size,
-        s3Key: key,
-        s3Bucket: bucket,
-        type: this.resolveType(file.mimetype),
-        uploadedById,
-        commentId,
-      },
+    return this.storeAndCreate(file, `comments/${commentId}`, {
+      uploadedById,
+      commentId,
     });
   }
 
@@ -105,39 +93,63 @@ export class AttachmentsService {
     userId: string,
     file: Express.Multer.File,
   ): Promise<AttachmentResponseDto> {
-    this.validateFile(file, ['image/jpeg', 'image/png', 'image/webp']);
+    this.validateFile(file, IMAGE_MIME_TYPES);
 
     const { key, bucket } = await this.s3Service.uploadFile(
       file.buffer,
-      file.originalname,
       file.mimetype,
       `avatars/${userId}`,
     );
 
-    const attachment = await this.prisma.attachment.create({
-      data: {
-        fileName: file.originalname,
-        mimeType: file.mimetype,
-        sizeBytes: file.size,
-        s3Key: key,
-        s3Bucket: bucket,
-        type: AttachmentType.IMAGE,
-        uploadedById: userId,
-      },
+    let result: {
+      attachment: AttachmentResponseDto;
+      previousAvatarId: string | null;
+    };
+
+    try {
+      // New row and the user's pointer to it change together
+      result = await this.prisma.$transaction(async (tx) => {
+        const user = await tx.user.findUnique({
+          where: { id: userId },
+          select: { avatarId: true },
+        });
+
+        const attachment = await tx.attachment.create({
+          data: this.rowFor(file, key, bucket, {
+            uploadedById: userId,
+          }),
+          select: ATTACHMENT_PUBLIC_SELECT,
+        });
+
+        await tx.user.update({
+          where: { id: userId },
+          data: { avatarId: attachment.id },
+        });
+
+        return { attachment, previousAvatarId: user?.avatarId ?? null };
+      });
+    } catch (err) {
+      await this.discardUpload(bucket, key);
+      throw err;
+    }
+
+    if (result.previousAvatarId) {
+      await this.remove(result.previousAvatarId).catch((err: Error) =>
+        this.logger.warn(`Could not remove old avatar: ${err.message}`),
+      );
+    }
+
+    return result.attachment;
+  }
+
+  /** Internal lookup that includes storage coordinates. Never return this to clients. */
+  private async findStored(id: string) {
+    const attachment = await this.prisma.attachment.findUnique({
+      where: { id },
     });
 
-    const previousAvatar = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { avatarId: true },
-    });
-
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { avatarId: attachment.id },
-    });
-
-    if (previousAvatar?.avatarId) {
-      await this.remove(previousAvatar.avatarId);
+    if (!attachment) {
+      throw new NotFoundException('Attachment not found');
     }
 
     return attachment;
@@ -146,6 +158,7 @@ export class AttachmentsService {
   async findOne(id: string): Promise<AttachmentResponseDto> {
     const attachment = await this.prisma.attachment.findUnique({
       where: { id },
+      select: ATTACHMENT_PUBLIC_SELECT,
     });
 
     if (!attachment) {
@@ -156,10 +169,15 @@ export class AttachmentsService {
   }
 
   async getDownloadUrl(id: string): Promise<DownloadUrlResponseDto> {
-    const attachment = await this.findOne(id);
+    const attachment = await this.findStored(id);
     const url = await this.s3Service.getPresignedUrl(
-      attachment['s3Bucket'] ?? '',
-      attachment['s3Key'],
+      attachment.s3Bucket,
+      attachment.s3Key,
+      3600,
+      {
+        fileName: attachment.fileName,
+        inline: attachment.type === AttachmentType.IMAGE,
+      },
     );
 
     return {
@@ -170,71 +188,148 @@ export class AttachmentsService {
   }
 
   async findAllForTask(taskId: string): Promise<AttachmentResponseDto[]> {
-    return this.prisma.attachment.findMany({ where: { taskId } });
+    return this.prisma.attachment.findMany({
+      where: { taskId },
+      select: ATTACHMENT_PUBLIC_SELECT,
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
   }
 
+  /**
+   * Delete on behalf of a user: the uploader or a project OWNER/ADMIN
+   * (avatars: only their owner).
+   */
+  async removeByUser(
+    id: string,
+    userId: string,
+  ): Promise<AttachmentResponseDto> {
+    const attachment = await this.authz.assertAttachmentAccess(userId, id);
+    await this.authz.assertAttachmentManage(userId, attachment);
+
+    return this.remove(id);
+  }
+
+  /** Database row first, then the object: a failed S3 call can't leave a dangling row. */
   async remove(id: string): Promise<AttachmentResponseDto> {
-    const attachment = await this.prisma.attachment.findUnique({
-      where: { id },
-    });
+    const attachment = await this.findStored(id);
 
-    if (!attachment) {
-      throw new NotFoundException('Attachment not found');
+    await this.prisma.attachment.delete({ where: { id } });
+    await this.purgeObjects([attachment]);
+
+    return this.toPublic(attachment);
+  }
+
+  /**
+   * Delete the attachment rows of the given tasks/comments inside the caller's
+   * transaction and return the files to purge. Call `purgeObjects` with the
+   * result only after the transaction commits, so a rollback never leaves
+   * rows pointing at deleted files.
+   */
+  async detachFor(
+    tx: Prisma.TransactionClient,
+    scope: { taskIds?: string[]; commentIds?: string[] },
+  ): Promise<StoredObject[]> {
+    const or: Prisma.AttachmentWhereInput[] = [];
+    if (scope.taskIds?.length) or.push({ taskId: { in: scope.taskIds } });
+    if (scope.commentIds?.length) {
+      or.push({ commentId: { in: scope.commentIds } });
     }
+    if (or.length === 0) return [];
 
-    await this.s3Service.deleteObject(attachment.s3Bucket, attachment.s3Key);
-
-    return this.prisma.attachment.delete({ where: { id } });
-  }
-
-  /** Best-effort S3 + DB cleanup for attachments linked to tasks. */
-  async removeForTasks(taskIds: string[]): Promise<void> {
-    if (taskIds.length === 0) return;
-
-    const attachments = await this.prisma.attachment.findMany({
-      where: { taskId: { in: taskIds } },
+    const attachments = await tx.attachment.findMany({
+      where: { OR: or },
+      select: { id: true, s3Bucket: true, s3Key: true },
     });
-
-    await this.deleteAttachments(attachments);
-  }
-
-  /** Best-effort S3 + DB cleanup for attachments linked to comments. */
-  async removeForComments(commentIds: string[]): Promise<void> {
-    if (commentIds.length === 0) return;
-
-    const attachments = await this.prisma.attachment.findMany({
-      where: { commentId: { in: commentIds } },
-    });
-
-    await this.deleteAttachments(attachments);
-  }
-
-  private async deleteAttachments(
-    attachments: { id: string; s3Bucket: string; s3Key: string }[],
-  ) {
-    for (const att of attachments) {
-      try {
-        await this.s3Service.deleteObject(att.s3Bucket, att.s3Key);
-      } catch (err) {
-        this.logger.warn(
-          `Failed to delete S3 object ${att.s3Key}: ${(err as Error).message}`,
-        );
-      }
-    }
 
     if (attachments.length > 0) {
-      await this.prisma.attachment.deleteMany({
+      await tx.attachment.deleteMany({
         where: { id: { in: attachments.map((a) => a.id) } },
       });
     }
+
+    return attachments;
+  }
+
+  /** Best-effort S3 cleanup; failures are logged, never thrown. */
+  async purgeObjects(objects: StoredObject[]): Promise<void> {
+    for (const object of objects) {
+      await this.discardUpload(object.s3Bucket, object.s3Key);
+    }
+  }
+
+  private async discardUpload(bucket: string, key: string): Promise<void> {
+    try {
+      await this.s3Service.deleteObject(bucket, key);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to delete S3 object ${key}: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /** Upload to S3, then record it; if recording fails the upload is removed again. */
+  private async storeAndCreate(
+    file: Express.Multer.File,
+    folder: string,
+    link: { uploadedById: string; taskId?: string; commentId?: string },
+  ): Promise<AttachmentResponseDto> {
+    const { key, bucket } = await this.s3Service.uploadFile(
+      file.buffer,
+      file.mimetype,
+      folder,
+    );
+
+    try {
+      return await this.prisma.attachment.create({
+        data: this.rowFor(file, key, bucket, link),
+        select: ATTACHMENT_PUBLIC_SELECT,
+      });
+    } catch (err) {
+      await this.discardUpload(bucket, key);
+      throw err;
+    }
+  }
+
+  private rowFor(
+    file: Express.Multer.File,
+    key: string,
+    bucket: string,
+    link: { uploadedById: string; taskId?: string; commentId?: string },
+  ): Prisma.AttachmentUncheckedCreateInput {
+    return {
+      fileName: sanitizeFileName(file.originalname),
+      mimeType: file.mimetype,
+      sizeBytes: file.size,
+      s3Key: key,
+      s3Bucket: bucket,
+      type: this.resolveType(file.mimetype),
+      ...link,
+    };
+  }
+
+  private toPublic(attachment: AttachmentResponseDto): AttachmentResponseDto {
+    return {
+      id: attachment.id,
+      fileName: attachment.fileName,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      type: attachment.type,
+      uploadedById: attachment.uploadedById,
+      taskId: attachment.taskId,
+      commentId: attachment.commentId,
+      createdAt: attachment.createdAt,
+    };
   }
 
   private validateFile(
-    file: Express.Multer.File,
+    file: Express.Multer.File | undefined,
     allowedTypes: string[] = ALLOWED_MIME_TYPES,
-  ) {
+  ): asserts file is Express.Multer.File {
     if (!file) {
       throw new BadRequestException('No file provided');
+    }
+    if (file.size === 0) {
+      throw new BadRequestException('File is empty');
     }
     if (file.size > MAX_FILE_SIZE) {
       throw new BadRequestException('File exceeds maximum size of 10MB');
@@ -242,6 +337,12 @@ export class AttachmentsService {
     if (!allowedTypes.includes(file.mimetype)) {
       throw new BadRequestException(
         `File type ${file.mimetype} is not allowed`,
+      );
+    }
+    // The declared type is client-controlled; check the bytes agree with it
+    if (!matchesDeclaredType(file.buffer, file.mimetype)) {
+      throw new BadRequestException(
+        'File content does not match its declared type',
       );
     }
   }

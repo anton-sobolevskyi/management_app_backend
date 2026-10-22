@@ -7,7 +7,6 @@ describe('AttachmentsController', () => {
   let controller: AttachmentsController;
   let service: AttachmentsService;
 
-  const mockRequest = { user: { userId: 'user123' } } as any;
   const mockFile = { originalname: 'test.jpg' } as Express.Multer.File;
 
   beforeEach(async () => {
@@ -22,7 +21,7 @@ describe('AttachmentsController', () => {
             uploadAvatar: jest.fn(),
             findAllForTask: jest.fn(),
             getDownloadUrl: jest.fn(),
-            remove: jest.fn(),
+            removeByUser: jest.fn(),
           },
         },
       ],
@@ -43,7 +42,7 @@ describe('AttachmentsController', () => {
       const result = await controller.uploadForTask(
         'task1',
         mockFile,
-        mockRequest,
+        'user123',
       );
       expect(result.id).toBe('att1');
       expect(service.uploadForTask).toHaveBeenCalledWith(
@@ -62,7 +61,7 @@ describe('AttachmentsController', () => {
       const result = await controller.uploadForComment(
         'comm1',
         mockFile,
-        mockRequest,
+        'user123',
       );
       expect(result.id).toBe('att1');
       expect(service.uploadForComment).toHaveBeenCalledWith(
@@ -78,7 +77,7 @@ describe('AttachmentsController', () => {
       jest
         .spyOn(service, 'uploadAvatar')
         .mockResolvedValue({ id: 'att1' } as any);
-      const result = await controller.uploadAvatar(mockFile, mockRequest);
+      const result = await controller.uploadAvatar(mockFile, 'user123');
       expect(result.id).toBe('att1');
       expect(service.uploadAvatar).toHaveBeenCalledWith('user123', mockFile);
     });
@@ -98,17 +97,19 @@ describe('AttachmentsController', () => {
         url: 'http://url',
         fileName: 'test.jpg',
         mimeType: 'image/jpeg',
-      } as any);
+      });
       await controller.getDownloadUrl('att1');
       expect(service.getDownloadUrl).toHaveBeenCalledWith('att1');
     });
   });
 
   describe('remove', () => {
-    it('should call service.remove', async () => {
-      jest.spyOn(service, 'remove').mockResolvedValue({ id: 'att1' } as any);
-      await controller.remove('att1');
-      expect(service.remove).toHaveBeenCalledWith('att1');
+    it('deletes on behalf of the user (uploader/admin rule lives in the service)', async () => {
+      jest
+        .spyOn(service, 'removeByUser')
+        .mockResolvedValue({ id: 'att1' } as any);
+      await controller.remove('att1', 'user123');
+      expect(service.removeByUser).toHaveBeenCalledWith('att1', 'user123');
     });
   });
 });

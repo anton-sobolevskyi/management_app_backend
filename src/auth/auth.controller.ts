@@ -15,16 +15,21 @@ import type {
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LocalAuthGuard } from './guards/local-auth.guard';
-import { ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { LoginDto } from './dto/login.dto';
 import {
   SimpleThrottlerGuard,
   Throttle,
 } from '../common/throttler/simple-throttler.guard';
-
-const REFRESH_COOKIE_NAME = 'refreshToken';
-const REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+import { TrustedOriginGuard } from '../common/guards/trusted-origin.guard';
+import {
+  REFRESH_COOKIE_NAME,
+  getRefreshCookieOptions,
+} from '../config/cookie.config';
+import { getAppConfig } from '../config/app.config';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import type { AuthUser } from '../common/decorators/current-user.decorator';
 
 @Controller('auth')
 @UseGuards(SimpleThrottlerGuard)
@@ -40,9 +45,9 @@ export class AuthController {
     @Body() dto: RegisterDto,
     @Response({ passthrough: true }) res: ExpressResponse,
   ) {
-    const { accessToken, refreshToken } = await this.authService.register(dto);
+    const { refreshToken, ...body } = await this.authService.register(dto);
     this.setRefreshCookie(res, refreshToken);
-    return { accessToken };
+    return body;
   }
 
   @ApiOperation({ summary: 'Login with email and password' })
@@ -53,27 +58,32 @@ export class AuthController {
   @HttpCode(200)
   @Post('login')
   async login(
-    @Body() body: LoginDto,
-    @Request() req: ExpressRequest,
+    @Body() _body: LoginDto,
+    @CurrentUser() user: AuthUser,
     @Response({ passthrough: true }) res: ExpressResponse,
   ): Promise<AuthResponseDto> {
-    const user = req.user;
-
-    if (!user) {
-      throw new UnauthorizedException('User not authenticated');
-    }
-
-    const { accessToken, refreshToken } = await this.authService.login(
-      user['id'],
-      user['email'],
+    const { refreshToken, ...body } = await this.authService.login(
+      user.userId,
+      user.email,
     );
     this.setRefreshCookie(res, refreshToken);
-    return { accessToken };
+    return body;
   }
 
-  @ApiOperation({ summary: 'Refresh access token using refresh token' })
-  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Refresh access token using the refresh-token cookie',
+    description:
+      'Reads the HttpOnly `refreshToken` cookie (no Authorization header needed), rotates it and returns a new access token.',
+  })
+  @ApiResponse({ status: 200, type: AuthResponseDto })
+  @ApiResponse({
+    status: 401,
+    description: 'Missing, invalid or reused refresh token',
+  })
+  @ApiResponse({ status: 403, description: 'Untrusted Origin' })
   @Throttle({ limit: 20, windowMs: 60_000 })
+  @UseGuards(TrustedOriginGuard)
+  @HttpCode(200)
   @Post('refresh')
   async refresh(
     @Request() req: ExpressRequest,
@@ -85,15 +95,17 @@ export class AuthController {
       throw new UnauthorizedException('No refresh token provided');
     }
 
-    const { accessToken, refreshToken: newRefreshToken } =
+    const { refreshToken: newRefreshToken, ...body } =
       await this.authService.refreshTokens(refreshToken);
     this.setRefreshCookie(res, newRefreshToken);
-    return { accessToken };
+    return body;
   }
 
   @ApiOperation({ summary: 'Logout and clear refresh token' })
-  @ApiBearerAuth('access-token')
+  @ApiResponse({ status: 201, description: 'Refresh cookie cleared' })
+  @ApiResponse({ status: 403, description: 'Untrusted Origin' })
   @Throttle({ limit: 20, windowMs: 60_000 })
+  @UseGuards(TrustedOriginGuard)
   @Post('logout')
   async logout(
     @Request() req: ExpressRequest,
@@ -105,17 +117,14 @@ export class AuthController {
       await this.authService.logout(refreshToken);
     }
 
-    res.clearCookie(REFRESH_COOKIE_NAME);
+    res.clearCookie(REFRESH_COOKIE_NAME, getRefreshCookieOptions());
     return { message: 'Logged out successfully' };
   }
 
   private setRefreshCookie(res: ExpressResponse, token: string) {
     res.cookie(REFRESH_COOKIE_NAME, token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: REFRESH_COOKIE_MAX_AGE,
-      path: '/auth',
+      ...getRefreshCookieOptions(),
+      maxAge: getAppConfig().jwt.refreshTtlMs,
     });
   }
 }

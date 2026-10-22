@@ -14,6 +14,13 @@ export class ProjectResponseDto {
   @ApiProperty({ required: false, type: () => [ProjectMemberResponseDto] })
   members?: ProjectMemberResponseDto[];
 
+  @ApiProperty({
+    required: false,
+    description:
+      'Total members (list endpoint only; `members` is capped at 20 there)',
+  })
+  memberCount?: number;
+
   @ApiProperty()
   createdAt: Date;
 

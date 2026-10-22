@@ -8,6 +8,15 @@ import {
 } from '../src/generated/prisma/client';
 import * as bcrypt from 'bcrypt';
 import { getDatabaseConfig } from '../src/config/database.config';
+import { assertSafeToSeed } from '../src/config/seed-guard';
+
+// Before anything connects: seeding wipes every table.
+try {
+  assertSafeToSeed();
+} catch (err) {
+  console.error((err as Error).message);
+  process.exit(1);
+}
 
 const { pool, adapter } = getDatabaseConfig();
 const prisma = new PrismaClient({ adapter });

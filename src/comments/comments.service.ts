@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthorizationService } from '../common/authorization/authorization.service';
 import { AttachmentsService } from '../attachments/attachments.service';
 import { CreateCommentDto } from './dto/create-comment.dto';
+import { ATTACHMENT_PUBLIC_SELECT } from '../attachments/attachments.constants';
 import { UpdateCommentDto } from './dto/update-comment.dto';
 import { CommentResponseDto } from './dto/comment-response.dto';
 import {
@@ -35,7 +36,7 @@ export class CommentsService {
     query: PaginationQueryDto = {},
   ): Promise<PaginatedResponseDto<CommentResponseDto>> {
     const { page, limit, skip } = paginationArgs(query);
-    const where = { taskId, deletedAt: null as null };
+    const where = { taskId, deletedAt: null };
 
     const [total, data] = await Promise.all([
       this.prisma.comment.count({ where }),
@@ -52,7 +53,7 @@ export class CommentsService {
             },
           },
         },
-        orderBy: { createdAt: 'asc' },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         skip,
         take: limit,
       }),
@@ -64,7 +65,7 @@ export class CommentsService {
   async findOne(id: string): Promise<CommentResponseDto> {
     const comment = await this.prisma.comment.findFirst({
       where: { id, deletedAt: null },
-      include: { attachments: true },
+      include: { attachments: { select: ATTACHMENT_PUBLIC_SELECT } },
     });
 
     if (!comment) {
@@ -92,11 +93,19 @@ export class CommentsService {
     const comment = await this.authz.assertCommentAccess(userId, id);
     await this.authz.assertCommentAuthorOrAdmin(userId, comment);
 
-    await this.attachmentsService.removeForComments([id]);
-
-    return this.prisma.comment.update({
-      where: { id },
-      data: { deletedAt: new Date() },
+    const { updated, stored } = await this.prisma.$transaction(async (tx) => {
+      const stored = await this.attachmentsService.detachFor(tx, {
+        commentIds: [id],
+      });
+      const updated = await tx.comment.update({
+        where: { id },
+        data: { deletedAt: new Date() },
+      });
+      return { updated, stored };
     });
+
+    await this.attachmentsService.purgeObjects(stored);
+
+    return updated;
   }
 }

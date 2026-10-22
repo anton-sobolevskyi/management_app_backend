@@ -7,9 +7,11 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Role } from '../generated/prisma/enums';
+import type { Prisma } from '../generated/prisma/client';
 import { AddProjectMemberDto } from './dto/add-project-member.dto';
 import { UpdateProjectMemberDto } from './dto/update-project-member.dto';
 import { ProjectMemberResponseDto } from './dto/project-member-response.dto';
+import { normalizeEmail } from '../common/utils/email';
 import {
   PaginatedResponseDto,
   PaginationQueryDto,
@@ -41,7 +43,7 @@ export class ProjectMembersService {
       this.prisma.projectMember.findMany({
         where,
         include: { user: { select: memberUserSelect } },
-        orderBy: { joinedAt: 'asc' },
+        orderBy: [{ joinedAt: 'asc' }, { id: 'asc' }],
         skip,
         take: limit,
       }),
@@ -63,7 +65,7 @@ export class ProjectMembersService {
     }
 
     const user = await this.prisma.user.findFirst({
-      where: { email: dto.email, deletedAt: null },
+      where: { email: normalizeEmail(dto.email), deletedAt: null },
     });
 
     if (!user) {
@@ -80,6 +82,8 @@ export class ProjectMembersService {
       throw new ConflictException('User is already a project member');
     }
 
+    // A concurrent duplicate add hits the (userId, projectId) unique index;
+    // the exception filter turns that P2002 into a 409.
     return this.prisma.projectMember.create({
       data: {
         projectId,
@@ -96,43 +100,47 @@ export class ProjectMembersService {
     dto: UpdateProjectMemberDto,
     actorUserId: string,
   ): Promise<ProjectMemberResponseDto> {
-    const actor = await this.prisma.projectMember.findUnique({
-      where: {
-        userId_projectId: { userId: actorUserId, projectId },
-      },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockProject(tx, projectId);
 
-    if (!actor) {
-      throw new NotFoundException('Project not found');
-    }
+      const actor = await tx.projectMember.findUnique({
+        where: {
+          userId_projectId: { userId: actorUserId, projectId },
+        },
+      });
 
-    const membership = await this.prisma.projectMember.findUnique({
-      where: {
-        userId_projectId: { userId: targetUserId, projectId },
-      },
-    });
-
-    if (!membership) {
-      throw new NotFoundException('Member not found');
-    }
-
-    // Only OWNER may grant or change OWNER role
-    if (dto.role === Role.OWNER || membership.role === Role.OWNER) {
-      if (actor.role !== Role.OWNER) {
-        throw new ForbiddenException(
-          'Only the project OWNER can change OWNER roles',
-        );
+      if (!actor) {
+        throw new NotFoundException('Project not found');
       }
-    }
 
-    if (membership.role === Role.OWNER && dto.role !== Role.OWNER) {
-      await this.assertNotLastOwner(projectId);
-    }
+      const membership = await tx.projectMember.findUnique({
+        where: {
+          userId_projectId: { userId: targetUserId, projectId },
+        },
+      });
 
-    return this.prisma.projectMember.update({
-      where: { id: membership.id },
-      data: { role: dto.role },
-      include: { user: { select: memberUserSelect } },
+      if (!membership) {
+        throw new NotFoundException('Member not found');
+      }
+
+      // Only OWNER may grant or change OWNER role
+      if (dto.role === Role.OWNER || membership.role === Role.OWNER) {
+        if (actor.role !== Role.OWNER) {
+          throw new ForbiddenException(
+            'Only the project OWNER can change OWNER roles',
+          );
+        }
+      }
+
+      if (membership.role === Role.OWNER && dto.role !== Role.OWNER) {
+        await this.assertNotLastOwner(tx, projectId);
+      }
+
+      return tx.projectMember.update({
+        where: { id: membership.id },
+        data: { role: dto.role },
+        include: { user: { select: memberUserSelect } },
+      });
     });
   }
 
@@ -145,44 +153,43 @@ export class ProjectMembersService {
     newOwnerUserId: string,
     actorUserId: string,
   ): Promise<ProjectMemberResponseDto> {
-    const actor = await this.prisma.projectMember.findUnique({
-      where: {
-        userId_projectId: { userId: actorUserId, projectId },
-      },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockProject(tx, projectId);
 
-    if (!actor || actor.role !== Role.OWNER) {
-      throw new ForbiddenException('Only the OWNER can transfer ownership');
-    }
+      const actor = await tx.projectMember.findUnique({
+        where: {
+          userId_projectId: { userId: actorUserId, projectId },
+        },
+      });
 
-    if (newOwnerUserId === actorUserId) {
-      throw new BadRequestException('You are already the OWNER');
-    }
+      if (!actor || actor.role !== Role.OWNER) {
+        throw new ForbiddenException('Only the OWNER can transfer ownership');
+      }
 
-    const target = await this.prisma.projectMember.findUnique({
-      where: {
-        userId_projectId: { userId: newOwnerUserId, projectId },
-      },
-    });
+      if (newOwnerUserId === actorUserId) {
+        throw new BadRequestException('You are already the OWNER');
+      }
 
-    if (!target) {
-      throw new NotFoundException('Target user is not a project member');
-    }
+      const target = await tx.projectMember.findUnique({
+        where: {
+          userId_projectId: { userId: newOwnerUserId, projectId },
+        },
+      });
 
-    await this.prisma.$transaction([
-      this.prisma.projectMember.update({
+      if (!target) {
+        throw new NotFoundException('Target user is not a project member');
+      }
+
+      await tx.projectMember.update({
         where: { id: actor.id },
         data: { role: Role.ADMIN },
-      }),
-      this.prisma.projectMember.update({
+      });
+
+      return tx.projectMember.update({
         where: { id: target.id },
         data: { role: Role.OWNER },
-      }),
-    ]);
-
-    return this.prisma.projectMember.findUniqueOrThrow({
-      where: { id: target.id },
-      include: { user: { select: memberUserSelect } },
+        include: { user: { select: memberUserSelect } },
+      });
     });
   }
 
@@ -191,58 +198,80 @@ export class ProjectMembersService {
     targetUserId: string,
     actorUserId: string,
   ): Promise<ProjectMemberResponseDto> {
-    const actor = await this.prisma.projectMember.findUnique({
-      where: {
-        userId_projectId: { userId: actorUserId, projectId },
-      },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockProject(tx, projectId);
 
-    if (!actor) {
-      throw new NotFoundException('Project not found');
-    }
+      const actor = await tx.projectMember.findUnique({
+        where: {
+          userId_projectId: { userId: actorUserId, projectId },
+        },
+      });
 
-    const membership = await this.prisma.projectMember.findUnique({
-      where: {
-        userId_projectId: { userId: targetUserId, projectId },
-      },
-    });
+      if (!actor) {
+        throw new NotFoundException('Project not found');
+      }
 
-    if (!membership) {
-      throw new NotFoundException('Member not found');
-    }
+      const membership = await tx.projectMember.findUnique({
+        where: {
+          userId_projectId: { userId: targetUserId, projectId },
+        },
+      });
 
-    const isSelf = targetUserId === actorUserId;
-    const actorIsAdmin =
-      actor.role === Role.OWNER || actor.role === Role.ADMIN;
+      if (!membership) {
+        throw new NotFoundException('Member not found');
+      }
 
-    // Self-leave allowed for any member; removing others requires OWNER/ADMIN
-    if (!isSelf && !actorIsAdmin) {
-      throw new ForbiddenException(
-        'Only OWNER or ADMIN can remove other members',
-      );
-    }
+      const isSelf = targetUserId === actorUserId;
+      const actorIsAdmin =
+        actor.role === Role.OWNER || actor.role === Role.ADMIN;
 
-    // ADMIN cannot remove OWNER
-    if (
-      !isSelf &&
-      membership.role === Role.OWNER &&
-      actor.role !== Role.OWNER
-    ) {
-      throw new ForbiddenException('Only OWNER can remove another OWNER');
-    }
+      // Self-leave allowed for any member; removing others requires OWNER/ADMIN
+      if (!isSelf && !actorIsAdmin) {
+        throw new ForbiddenException(
+          'Only OWNER or ADMIN can remove other members',
+        );
+      }
 
-    if (membership.role === Role.OWNER) {
-      await this.assertNotLastOwner(projectId);
-    }
+      // ADMIN cannot remove OWNER
+      if (
+        !isSelf &&
+        membership.role === Role.OWNER &&
+        actor.role !== Role.OWNER
+      ) {
+        throw new ForbiddenException('Only OWNER can remove another OWNER');
+      }
 
-    return this.prisma.projectMember.delete({
-      where: { id: membership.id },
-      include: { user: { select: memberUserSelect } },
+      if (membership.role === Role.OWNER) {
+        await this.assertNotLastOwner(tx, projectId);
+      }
+
+      // Assignees must be project members; keep that true after they leave
+      await tx.task.updateMany({
+        where: { projectId, assignedToId: targetUserId },
+        data: { assignedToId: null },
+      });
+
+      return tx.projectMember.delete({
+        where: { id: membership.id },
+        include: { user: { select: memberUserSelect } },
+      });
     });
   }
 
-  private async assertNotLastOwner(projectId: string) {
-    const ownerCount = await this.prisma.projectMember.count({
+  /**
+   * Serialises owner/role changes of one project. Without it, two owners
+   * demoting each other at the same moment both pass the "not the last
+   * owner" check and leave the project with none.
+   */
+  private async lockProject(tx: Prisma.TransactionClient, projectId: string) {
+    await tx.$queryRaw`SELECT "id" FROM "projects" WHERE "id" = ${projectId} FOR UPDATE`;
+  }
+
+  private async assertNotLastOwner(
+    tx: Prisma.TransactionClient,
+    projectId: string,
+  ) {
+    const ownerCount = await tx.projectMember.count({
       where: { projectId, role: Role.OWNER },
     });
 

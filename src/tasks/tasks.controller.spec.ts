@@ -9,6 +9,7 @@ describe('TasksController', () => {
 
   const mockTasksService = {
     create: jest.fn(),
+    findAll: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -26,10 +27,31 @@ describe('TasksController', () => {
 
   it('should call service.create with correct params', async () => {
     const dto = { title: 'New Task' } as any;
-    const req = { user: { userId: 'user-1' } } as any;
 
-    await controller.create('proj-1', dto, req);
+    await controller.create('proj-1', dto, 'user-1');
 
     expect(service.create).toHaveBeenCalledWith('proj-1', dto, 'user-1');
+  });
+
+  it('should split filters from pagination for findAll', async () => {
+    await controller.findAll('proj-1', {
+      page: 2,
+      limit: 5,
+      status: 'TODO',
+      q: 'bug',
+      dueBefore: '2026-10-31',
+    } as any);
+
+    expect(service.findAll).toHaveBeenCalledWith(
+      'proj-1',
+      {
+        status: 'TODO',
+        assignedToId: undefined,
+        q: 'bug',
+        dueBefore: '2026-10-31',
+        dueAfter: undefined,
+      },
+      { page: 2, limit: 5 },
+    );
   });
 });

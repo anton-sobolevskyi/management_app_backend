@@ -33,16 +33,19 @@ describe('ProjectsController', () => {
 
   it('should create a project', async () => {
     const dto = { name: 'Test', description: 'Desc' };
-    const req = { user: { userId: '1' } } as any;
     jest.spyOn(service, 'create').mockResolvedValue({ id: '1' } as any);
-    expect(await controller.create(dto, req)).toEqual({ id: '1' });
+    expect(await controller.create(dto, 'user-1')).toEqual({ id: '1' });
+    expect(service.create).toHaveBeenCalledWith(dto, 'user-1');
   });
 
   it('should find all projects', async () => {
-    const req = { user: { userId: '1' } } as any;
-    const page = { data: [], meta: { total: 0, page: 1, limit: 20, totalPages: 1 } };
-    jest.spyOn(service, 'findAll').mockResolvedValue(page as any);
-    expect(await controller.findAll(req, {})).toEqual(page);
+    const page = {
+      data: [],
+      meta: { total: 0, page: 1, limit: 20, totalPages: 1 },
+    };
+    jest.spyOn(service, 'findAll').mockResolvedValue(page);
+    expect(await controller.findAll('user-1', {})).toEqual(page);
+    expect(service.findAll).toHaveBeenCalledWith('user-1', {});
   });
 
   it('should find one project', async () => {

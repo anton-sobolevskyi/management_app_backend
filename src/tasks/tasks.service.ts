@@ -8,6 +8,9 @@ import { AttachmentsService } from '../attachments/attachments.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { TaskResponseDto } from './dto/task-response.dto';
+import { TaskStatus } from '../generated/prisma/enums';
+import type { Prisma } from '../generated/prisma/client';
+import { ATTACHMENT_PUBLIC_SELECT } from '../attachments/attachments.constants';
 import {
   PaginatedResponseDto,
   PaginationQueryDto,
@@ -16,12 +19,28 @@ import {
 } from '../common/dto/pagination.dto';
 
 export type TaskListFilters = {
-  status?: string;
+  status?: TaskStatus;
   assignedToId?: string;
   q?: string;
   dueBefore?: string;
   dueAfter?: string;
 };
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseDate(value: string, field: string): Date {
+  const date = new Date(value);
+  // Some ISO 8601 forms (week/ordinal dates) pass validation but not Date().
+  if (Number.isNaN(date.getTime())) {
+    throw new BadRequestException(`${field} must be a valid ISO 8601 date`);
+  }
+  return date;
+}
+
+/** undefined = leave unchanged, null = clear, string = set. */
+function toDueDate(value: string | null | undefined): Date | null | undefined {
+  return typeof value === 'string' ? parseDate(value, 'dueDate') : value;
+}
 
 @Injectable()
 export class TasksService {
@@ -43,9 +62,7 @@ export class TasksService {
     });
 
     if (!membership) {
-      throw new BadRequestException(
-        'Assignee must be a member of the project',
-      );
+      throw new BadRequestException('Assignee must be a member of the project');
     }
   }
 
@@ -59,7 +76,7 @@ export class TasksService {
     return this.prisma.task.create({
       data: {
         ...dto,
-        dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
+        dueDate: toDueDate(dto.dueDate),
         projectId,
         createdById,
       },
@@ -73,7 +90,7 @@ export class TasksService {
   ): Promise<PaginatedResponseDto<TaskResponseDto>> {
     const { page, limit, skip } = paginationArgs(query);
 
-    const where: Record<string, unknown> = {
+    const where: Prisma.TaskWhereInput = {
       projectId,
       deletedAt: null,
     };
@@ -91,17 +108,28 @@ export class TasksService {
       ];
     }
     if (filters.dueBefore || filters.dueAfter) {
-      where.dueDate = {
-        ...(filters.dueAfter && { gte: new Date(filters.dueAfter) }),
-        ...(filters.dueBefore && { lte: new Date(filters.dueBefore) }),
-      };
+      const dueDate: Prisma.DateTimeNullableFilter = {};
+      if (filters.dueAfter) {
+        dueDate.gte = parseDate(filters.dueAfter, 'dueAfter');
+      }
+      if (filters.dueBefore) {
+        // "2026-10-31" should include tasks due any time on the 31st
+        dueDate.lte = parseDate(
+          DATE_ONLY.test(filters.dueBefore)
+            ? `${filters.dueBefore}T23:59:59.999Z`
+            : filters.dueBefore,
+          'dueBefore',
+        );
+      }
+      where.dueDate = dueDate;
     }
 
     const [total, data] = await Promise.all([
-      this.prisma.task.count({ where: where as any }),
+      this.prisma.task.count({ where }),
       this.prisma.task.findMany({
-        where: where as any,
-        orderBy: { createdAt: 'desc' },
+        where,
+        // id breaks ties so pages never repeat or skip rows
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip,
         take: limit,
       }),
@@ -113,7 +141,14 @@ export class TasksService {
   async findOne(id: string): Promise<TaskResponseDto> {
     const task = await this.prisma.task.findFirst({
       where: { id, deletedAt: null },
-      include: { comments: true, attachments: true },
+      include: {
+        // soft-deleted comments must not leak through the task detail
+        comments: {
+          where: { deletedAt: null },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        },
+        attachments: { select: ATTACHMENT_PUBLIC_SELECT },
+      },
     });
 
     if (!task) {
@@ -140,32 +175,50 @@ export class TasksService {
       where: { id },
       data: {
         ...dto,
-        dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
+        dueDate: toDueDate(dto.dueDate),
       },
     });
   }
 
   async softDelete(id: string): Promise<TaskResponseDto> {
-    await this.findOne(id);
-
-    const now = new Date();
-
-    const comments = await this.prisma.comment.findMany({
-      where: { taskId: id, deletedAt: null },
+    const exists = await this.prisma.task.findFirst({
+      where: { id, deletedAt: null },
       select: { id: true },
     });
 
-    await this.attachmentsService.removeForComments(comments.map((c) => c.id));
-    await this.attachmentsService.removeForTasks([id]);
+    if (!exists) {
+      throw new NotFoundException('Task not found');
+    }
 
-    await this.prisma.comment.updateMany({
-      where: { taskId: id, deletedAt: null },
-      data: { deletedAt: now },
+    const now = new Date();
+
+    // All-or-nothing in the database; files are removed only after commit
+    const { task, stored } = await this.prisma.$transaction(async (tx) => {
+      const comments = await tx.comment.findMany({
+        where: { taskId: id, deletedAt: null },
+        select: { id: true },
+      });
+
+      const stored = await this.attachmentsService.detachFor(tx, {
+        taskIds: [id],
+        commentIds: comments.map((c) => c.id),
+      });
+
+      await tx.comment.updateMany({
+        where: { taskId: id, deletedAt: null },
+        data: { deletedAt: now },
+      });
+
+      const task = await tx.task.update({
+        where: { id },
+        data: { deletedAt: now },
+      });
+
+      return { task, stored };
     });
 
-    return this.prisma.task.update({
-      where: { id },
-      data: { deletedAt: now },
-    });
+    await this.attachmentsService.purgeObjects(stored);
+
+    return task;
   }
 }

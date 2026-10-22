@@ -12,6 +12,7 @@ import { UpdateTaskDto } from './dto/update-task.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ProjectMemberGuard } from '../common/authorization/project-member.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { ProjectScope } from '../common/decorators/project-scope.decorator';
 import { Role } from '../generated/prisma/enums';
 import {
   ApiBearerAuth,
@@ -24,6 +25,7 @@ import { TaskResponseDto } from './dto/task-response.dto';
 @ApiTags('tasks')
 @UseGuards(JwtAuthGuard, ProjectMemberGuard)
 @ApiBearerAuth('access-token')
+@ProjectScope('task', 'id')
 @Controller('tasks')
 export class TaskController {
   constructor(private tasksService: TasksService) {}

@@ -1,14 +1,20 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { UsersService } from './users.service';
 import { PrismaService } from '../prisma/prisma.service';
-import * as bcrypt from 'bcrypt';
+import { ProjectsService } from '../projects/projects.service';
+import { AttachmentsService } from '../attachments/attachments.service';
+import { Role } from '../generated/prisma/enums';
 
 jest.mock('bcrypt');
 
 describe('UsersService', () => {
   let service: UsersService;
-  let prisma: PrismaService;
 
   const mockUserResponse = {
     id: 'user-1',
@@ -18,102 +24,220 @@ describe('UsersService', () => {
     createdAt: new Date(),
   };
 
+  const mockPrisma: any = {
+    user: { findFirst: jest.fn(), update: jest.fn() },
+    projectMember: {
+      findMany: jest.fn(),
+      count: jest.fn(),
+      deleteMany: jest.fn(),
+    },
+    task: { updateMany: jest.fn() },
+    refreshToken: { updateMany: jest.fn() },
+    $transaction: jest.fn(),
+  };
+  const mockProjects = { softDelete: jest.fn() };
+  const mockAttachments = { remove: jest.fn() };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
-        {
-          provide: PrismaService,
-          useValue: {
-            user: {
-              findFirst: jest.fn(),
-              create: jest.fn(),
-              update: jest.fn(),
-            },
-            refreshToken: {
-              updateMany: jest.fn(),
-            },
-          },
-        },
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: ProjectsService, useValue: mockProjects },
+        { provide: AttachmentsService, useValue: mockAttachments },
       ],
     }).compile();
 
     service = module.get<UsersService>(UsersService);
-    prisma = module.get<PrismaService>(PrismaService);
-  });
-
-  afterEach(() => {
     jest.clearAllMocks();
-  });
-
-  describe('create', () => {
-    const dto = {
-      email: 'test@example.com',
-      password: 'password123',
-      name: 'Test User',
-    };
-
-    it('should hash password and create a user successfully', async () => {
-      jest.spyOn(prisma.user, 'findFirst').mockResolvedValue(null);
-      (bcrypt.hash as jest.Mock).mockResolvedValue('hashedPassword');
-      jest
-        .spyOn(prisma.user, 'create')
-        .mockResolvedValue(mockUserResponse as any);
-
-      const result = await service.create(dto);
-
-      expect(prisma.user.findFirst).toHaveBeenCalledWith({
-        where: { email: dto.email, deletedAt: null },
-      });
-      expect(result).toEqual(mockUserResponse);
-    });
-
-    it('should throw ConflictException if email is already taken', async () => {
-      jest
-        .spyOn(prisma.user, 'findFirst')
-        .mockResolvedValue({ id: 'existing' } as any);
-
-      await expect(service.create(dto)).rejects.toThrow(ConflictException);
-    });
+    mockPrisma.$transaction.mockImplementation((arg: any) =>
+      typeof arg === 'function' ? arg(mockPrisma) : Promise.all(arg),
+    );
   });
 
   describe('findOne', () => {
     it('should return user if found', async () => {
-      jest
-        .spyOn(prisma.user, 'findFirst')
-        .mockResolvedValue(mockUserResponse as any);
-
-      const result = await service.findOne('user-1');
-      expect(result).toEqual(mockUserResponse);
+      mockPrisma.user.findFirst.mockResolvedValue(mockUserResponse);
+      expect(await service.findOne('user-1')).toEqual(mockUserResponse);
     });
 
     it('should throw NotFoundException if user not found', async () => {
-      jest.spyOn(prisma.user, 'findFirst').mockResolvedValue(null);
-      await expect(service.findOne('user-1')).rejects.toThrow(NotFoundException);
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+      await expect(service.findOne('user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('update', () => {
+    it('normalises the email and rejects one taken by someone else', async () => {
+      mockPrisma.user.findFirst
+        .mockResolvedValueOnce(mockUserResponse) // findOne
+        .mockResolvedValueOnce({ id: 'other' }); // taken
+
+      await expect(
+        service.update('user-1', { email: ' Taken@Example.com ' } as any),
+      ).rejects.toThrow(ConflictException);
+
+      expect(mockPrisma.user.findFirst).toHaveBeenLastCalledWith({
+        where: {
+          email: 'taken@example.com',
+          deletedAt: null,
+          NOT: { id: 'user-1' },
+        },
+      });
+    });
+  });
+
+  describe('changePassword', () => {
+    const dto = { currentPassword: 'old-pass-1', newPassword: 'new-pass-2' };
+
+    beforeEach(() => {
+      mockPrisma.user.findFirst.mockResolvedValue({
+        id: 'user-1',
+        passwordHash: 'stored-hash',
+      });
+    });
+
+    it('verifies the current password, stores the new hash and revokes all sessions', async () => {
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('new-hash');
+      mockPrisma.user.update.mockReturnValue('user-update');
+      mockPrisma.refreshToken.updateMany.mockReturnValue('revoke');
+
+      await service.changePassword('user-1', dto);
+
+      expect(bcrypt.compare).toHaveBeenCalledWith('old-pass-1', 'stored-hash');
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { passwordHash: 'new-hash' },
+      });
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', revoked: false },
+        data: { revoked: true },
+      });
+    });
+
+    it('rejects a wrong current password without changing anything', async () => {
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+
+      await expect(service.changePassword('user-1', dto)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      expect(mockPrisma.refreshToken.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('rejects reusing the same password', async () => {
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      await expect(
+        service.changePassword('user-1', {
+          currentPassword: 'same-pass-1',
+          newPassword: 'same-pass-1',
+        }),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
   describe('softDelete', () => {
-    it('should free email, revoke tokens, and soft delete', async () => {
-      jest.spyOn(prisma.user, 'findFirst').mockResolvedValue({
+    const owned = (projectId: string, name: string) => ({
+      projectId,
+      project: { name },
+    });
+
+    beforeEach(() => {
+      mockPrisma.user.findFirst.mockResolvedValue({
         id: 'user-1',
-        email: 'test@example.com',
-      } as any);
-      jest.spyOn(prisma.refreshToken, 'updateMany').mockResolvedValue({ count: 1 } as any);
-      jest
-        .spyOn(prisma.user, 'update')
-        .mockResolvedValue(mockUserResponse as any);
+        avatarId: null,
+      });
+      mockPrisma.projectMember.findMany.mockResolvedValue([]);
+      mockPrisma.user.update.mockResolvedValue(mockUserResponse);
+    });
+
+    it('anonymises the account, removes memberships, unassigns tasks and revokes tokens', async () => {
+      await service.softDelete('user-1');
+
+      expect(mockPrisma.task.updateMany).toHaveBeenCalledWith({
+        where: { assignedToId: 'user-1' },
+        data: { assignedToId: null },
+      });
+      expect(mockPrisma.projectMember.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1' },
+      });
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', revoked: false },
+        data: { revoked: true },
+      });
+
+      const { data } = mockPrisma.user.update.mock.calls[0][0];
+      expect(data).toMatchObject({
+        deletedAt: expect.any(Date),
+        email: expect.stringContaining('deleted+user-1'),
+        name: 'Deleted user',
+        avatarId: null,
+      });
+      // personal data is erased, and the hash can never match a password
+      expect(data.passwordHash).toMatch(/^!/);
+    });
+
+    it('refuses while sole OWNER of a project that still has other members', async () => {
+      mockPrisma.projectMember.findMany.mockResolvedValue([
+        owned('p1', 'Team Alpha'),
+      ]);
+      mockPrisma.projectMember.count.mockImplementation(
+        async ({ where }: any) => (where.role === Role.OWNER ? 0 : 3),
+      );
+
+      const attempt = service.softDelete('user-1');
+      await expect(attempt).rejects.toBeInstanceOf(ConflictException);
+      await expect(attempt).rejects.toThrow(/Team Alpha/);
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      expect(mockProjects.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('allows deletion when another OWNER keeps the project running', async () => {
+      mockPrisma.projectMember.findMany.mockResolvedValue([
+        owned('p1', 'Shared'),
+      ]);
+      mockPrisma.projectMember.count
+        .mockResolvedValueOnce(1) // other owners
+        .mockResolvedValueOnce(4);
 
       await service.softDelete('user-1');
 
-      expect(prisma.refreshToken.updateMany).toHaveBeenCalled();
-      expect(prisma.user.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            deletedAt: expect.any(Date),
-            email: expect.stringContaining('deleted+user-1'),
-          }),
-        }),
+      expect(mockProjects.softDelete).not.toHaveBeenCalled();
+      expect(mockPrisma.user.update).toHaveBeenCalled();
+    });
+
+    it('deletes projects where the user is the only member', async () => {
+      mockPrisma.projectMember.findMany.mockResolvedValue([
+        owned('p1', 'Solo'),
+      ]);
+      mockPrisma.projectMember.count
+        .mockResolvedValueOnce(0)
+        .mockResolvedValueOnce(0);
+
+      await service.softDelete('user-1');
+
+      expect(mockProjects.softDelete).toHaveBeenCalledWith('p1');
+    });
+
+    it('removes the avatar file after the account is anonymised', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({
+        id: 'user-1',
+        avatarId: 'av1',
+      });
+      mockAttachments.remove.mockResolvedValue({});
+
+      await service.softDelete('user-1');
+
+      expect(mockAttachments.remove).toHaveBeenCalledWith('av1');
+    });
+
+    it('404s for an unknown or already deleted user', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+      await expect(service.softDelete('user-1')).rejects.toThrow(
+        NotFoundException,
       );
     });
   });

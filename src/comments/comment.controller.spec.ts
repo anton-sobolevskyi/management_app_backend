@@ -38,19 +38,17 @@ describe('CommentController', () => {
 
   it('should call service.update with userId', async () => {
     const dto = { content: 'Updated' };
-    const req = { user: { userId: 'user-1' } } as any;
     mockCommentsService.update.mockResolvedValue({ id: 'c1', ...dto });
 
-    await controller.update('c1', dto as any, req);
+    await controller.update('c1', dto, 'user-1');
 
     expect(service.update).toHaveBeenCalledWith('c1', dto, 'user-1');
   });
 
   it('should call service.softDelete with userId', async () => {
-    const req = { user: { userId: 'user-1' } } as any;
     mockCommentsService.softDelete.mockResolvedValue({ id: 'c1' });
 
-    await controller.softDelete('c1', req);
+    await controller.softDelete('c1', 'user-1');
 
     expect(service.softDelete).toHaveBeenCalledWith('c1', 'user-1');
   });

@@ -23,7 +23,7 @@ interface Bucket {
 }
 
 /**
- * Lightweight in-memory IP rate limiter (no extra dependency).
+ * Lightweight in-memory rate limiter (per user when authenticated, else per IP) (no extra dependency).
  * Suitable for a single instance; use Redis-backed throttling at scale.
  * Disabled when NODE_ENV=test so e2e can register many users quickly.
  */
@@ -50,11 +50,13 @@ export class SimpleThrottlerGuard implements CanActivate {
     }
 
     const req = context.switchToHttp().getRequest<Request>();
-    const ip =
-      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-      req.ip ||
-      'unknown';
-    const key = `${context.getClass().name}:${context.getHandler().name}:${ip}`;
+    // req.ip already honours the `trust proxy` setting (see main.ts). Never read
+    // X-Forwarded-For directly: its first entry is client-controlled.
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    // Authenticated routes are limited per user, so users behind one NAT don't
+    // share a bucket; anonymous routes (login, register) are limited per IP.
+    const subject = req.user?.userId ?? ip;
+    const key = `${context.getClass().name}:${context.getHandler().name}:${subject}`;
     const now = Date.now();
 
     let bucket = this.buckets.get(key);

@@ -6,7 +6,7 @@ services:
     plan: free
     branch: main
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /api-docs
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
@@ -26,3 +26,10 @@ services:
         sync: false
       - key: FRONTEND_URL
         sync: false
+      # One load balancer in front of the container. Verify per-client rate
+      # limiting after deploying (see README: TRUST_PROXY).
+      - key: TRUST_PROXY
+        value: '1'
+      # Set to "none" if the frontend is on a different site than this API.
+      - key: COOKIE_SAME_SITE
+        value: lax

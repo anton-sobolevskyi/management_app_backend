@@ -45,16 +45,14 @@ describe('ProjectMembersController', () => {
 
   it('updates role', async () => {
     const dto = { role: Role.ADMIN };
-    const req = { user: { userId: 'u1' } } as any;
     mockService.updateRole.mockResolvedValue({ id: 'm1' });
-    await controller.updateRole('p1', 'u2', dto, req);
+    await controller.updateRole('p1', 'u2', dto, 'u1');
     expect(service.updateRole).toHaveBeenCalledWith('p1', 'u2', dto, 'u1');
   });
 
   it('removes a member', async () => {
-    const req = { user: { userId: 'u1' } } as any;
     mockService.remove.mockResolvedValue({ id: 'm1' });
-    await controller.remove('p1', 'u2', req);
+    await controller.remove('p1', 'u2', 'u1');
     expect(service.remove).toHaveBeenCalledWith('p1', 'u2', 'u1');
   });
 });

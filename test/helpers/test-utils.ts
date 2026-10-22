@@ -4,6 +4,7 @@ import { AppModule } from '../../src/app.module';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { AuthResponseDto } from '../../src/auth/dto/auth-response.dto';
+import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 
 export async function createTestApp(): Promise<INestApplication> {
   process.env.NODE_ENV = 'test';
@@ -16,6 +17,8 @@ export async function createTestApp(): Promise<INestApplication> {
   const app = moduleFixture.createNestApplication();
   app.use(cookieParser());
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  // Same error shape as production (main.ts)
+  app.useGlobalFilters(new AllExceptionsFilter());
   await app.init();
   return app;
 }
@@ -53,4 +56,45 @@ export async function getAuthToken(
 ): Promise<string> {
   const user = await registerUser(app, { email, password });
   return user.accessToken;
+}
+
+/** Authorization header for supertest: `.set(...bearer(user))`. */
+export const bearer = (user: { accessToken: string }) =>
+  ['Authorization', `Bearer ${user.accessToken}`] as const;
+
+/** Create a project owned by `owner`, optionally adding members. Returns its id. */
+export async function createProject(
+  app: INestApplication,
+  owner: TestUser,
+  members: { user: TestUser; role?: 'ADMIN' | 'MEMBER' }[] = [],
+): Promise<string> {
+  const res = await request(app.getHttpServer())
+    .post('/projects')
+    .set(...bearer(owner))
+    .send({ name: 'Test Project' })
+    .expect(201);
+  const projectId = (res.body as { id: string }).id;
+
+  for (const { user, role = 'MEMBER' } of members) {
+    await request(app.getHttpServer())
+      .post(`/projects/${projectId}/members`)
+      .set(...bearer(owner))
+      .send({ email: user.email, role })
+      .expect(201);
+  }
+  return projectId;
+}
+
+export async function createTask(
+  app: INestApplication,
+  user: TestUser,
+  projectId: string,
+  body: Record<string, unknown> = {},
+): Promise<{ id: string; [key: string]: any }> {
+  const res = await request(app.getHttpServer())
+    .post(`/projects/${projectId}/tasks`)
+    .set(...bearer(user))
+    .send({ title: 'Task', ...body })
+    .expect(201);
+  return res.body as { id: string };
 }

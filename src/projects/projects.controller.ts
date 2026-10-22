@@ -7,7 +7,6 @@ import {
   Param,
   Body,
   Query,
-  Request,
   UseGuards,
 } from '@nestjs/common';
 import { ProjectsService } from './projects.service';
@@ -16,8 +15,9 @@ import { UpdateProjectDto } from './dto/update-project.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ProjectMemberGuard } from '../common/authorization/project-member.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { ProjectScope } from '../common/decorators/project-scope.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Role } from '../generated/prisma/enums';
-import type { Request as ExpressRequest } from 'express';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation } from '@nestjs/swagger';
 import { ProjectResponseDto } from './dto/project-response.dto';
 import { PaginationQueryDto } from '../common/dto/pagination.dto';
@@ -30,22 +30,27 @@ export class ProjectsController {
 
   @Post()
   @ApiOperation({ summary: 'Create a new project' })
-  create(@Body() dto: CreateProjectDto, @Request() req: ExpressRequest) {
-    return this.projectsService.create(dto, req.user!['userId']);
+  create(@Body() dto: CreateProjectDto, @CurrentUser('userId') userId: string) {
+    return this.projectsService.create(dto, userId);
   }
 
   @ApiOkResponse({ type: [ProjectResponseDto] })
   @Get()
-  @ApiOperation({ summary: 'Retrieve a paginated list of projects' })
+  @ApiOperation({
+    summary: 'Retrieve a paginated list of projects',
+    description:
+      'Each project lists its first 20 members plus `memberCount`; use /projects/:id/members for the full list.',
+  })
   findAll(
-    @Request() req: ExpressRequest,
+    @CurrentUser('userId') userId: string,
     @Query() query: PaginationQueryDto,
   ) {
-    return this.projectsService.findAll(req.user!['userId'], query);
+    return this.projectsService.findAll(userId, query);
   }
 
   @Get(':id')
   @UseGuards(ProjectMemberGuard)
+  @ProjectScope('project', 'id')
   @ApiOperation({ summary: 'Retrieve a single project' })
   findOne(@Param('id') id: string) {
     return this.projectsService.findOne(id);
@@ -53,6 +58,7 @@ export class ProjectsController {
 
   @Patch(':id')
   @UseGuards(ProjectMemberGuard)
+  @ProjectScope('project', 'id')
   @Roles(Role.OWNER, Role.ADMIN)
   @ApiOperation({ summary: 'Update a project by ID' })
   update(@Param('id') id: string, @Body() dto: UpdateProjectDto) {
@@ -61,6 +67,7 @@ export class ProjectsController {
 
   @Delete(':id')
   @UseGuards(ProjectMemberGuard)
+  @ProjectScope('project', 'id')
   @Roles(Role.OWNER)
   @ApiOperation({ summary: 'Delete a project by ID (soft delete)' })
   softDelete(@Param('id') id: string) {

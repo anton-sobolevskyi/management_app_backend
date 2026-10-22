@@ -1,22 +1,33 @@
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
+import type { NextFunction, Request, Response } from 'express';
 import { ValidationPipe } from '@nestjs/common';
 import { validateEnv } from './config/env.validation';
-import { generateRequestId } from './common/utils/token-hash';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { getAllowedOrigins } from './config/cors.config';
+import { getTrustProxy } from './config/trust-proxy.config';
+import { getAppConfig } from './config/app.config';
 
 async function bootstrap() {
   validateEnv();
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Makes req.ip honour only the configured number of proxy hops, so a client
+  // cannot spoof its address (and dodge rate limits) via X-Forwarded-For.
+  app.set('trust proxy', getTrustProxy());
 
   app.use(cookieParser());
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  app.use((_req, res, next) => {
+  // Close the Prisma pool and finish in-flight requests on SIGTERM/SIGINT
+  app.enableShutdownHooks();
+
+  app.use((_req: Request, res: Response, next: NextFunction) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -33,47 +44,33 @@ async function bootstrap() {
     next();
   });
 
-  app.use((req, res, next) => {
-    const incoming = req.headers['x-request-id'];
-    const requestId =
-      typeof incoming === 'string' && incoming.length > 0
-        ? incoming
-        : generateRequestId();
-    req.headers['x-request-id'] = requestId;
-    res.setHeader('X-Request-Id', requestId);
-    next();
-  });
-
-  const frontendUrl = process.env.FRONTEND_URL;
-  const corsOrigins = frontendUrl
-    ? frontendUrl.split(',').map((o) => o.trim())
-    : ['http://localhost:5173'];
-
   app.enableCors({
-    origin: corsOrigins,
+    origin: getAllowedOrigins(),
     credentials: true,
   });
 
-  const config = new DocumentBuilder()
-    .setTitle('API')
-    .setDescription('Project management API')
-    .setVersion('1.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-      },
-      'access-token',
-    )
-    .build();
+  if (getAppConfig().swaggerEnabled) {
+    const config = new DocumentBuilder()
+      .setTitle('API')
+      .setDescription('Project management API')
+      .setVersion('1.0')
+      .addBearerAuth(
+        {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+        },
+        'access-token',
+      )
+      .build();
 
-  const document = SwaggerModule.createDocument(app, config, {
-    operationIdFactory: (controllerKey, methodKey) =>
-      controllerKey.toLocaleLowerCase().replace('controller', '') +
-      `-${methodKey.toLocaleLowerCase()}`,
-  });
-  SwaggerModule.setup('api-docs', app, document);
+    const document = SwaggerModule.createDocument(app, config, {
+      operationIdFactory: (controllerKey, methodKey) =>
+        controllerKey.toLocaleLowerCase().replace('controller', '') +
+        `-${methodKey.toLocaleLowerCase()}`,
+    });
+    SwaggerModule.setup('api-docs', app, document);
+  }
 
   await app.listen(process.env.PORT ?? 3000);
 }

@@ -7,7 +7,6 @@ import {
   Param,
   Body,
   Query,
-  Request,
   UseGuards,
 } from '@nestjs/common';
 import { ProjectMembersService } from './project-members.service';
@@ -17,7 +16,12 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ProjectMemberGuard } from '../common/authorization/project-member.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Role } from '../generated/prisma/enums';
-import type { Request as ExpressRequest } from 'express';
+import {
+  SimpleThrottlerGuard,
+  Throttle,
+} from '../common/throttler/simple-throttler.guard';
+import { ProjectScope } from '../common/decorators/project-scope.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -28,8 +32,9 @@ import { ProjectMemberResponseDto } from './dto/project-member-response.dto';
 import { PaginationQueryDto } from '../common/dto/pagination.dto';
 
 @ApiTags('project members')
-@UseGuards(JwtAuthGuard, ProjectMemberGuard)
+@UseGuards(JwtAuthGuard, ProjectMemberGuard, SimpleThrottlerGuard)
 @ApiBearerAuth('access-token')
+@ProjectScope('project', 'projectId')
 @Controller('projects/:projectId/members')
 export class ProjectMembersController {
   constructor(private membersService: ProjectMembersService) {}
@@ -45,13 +50,11 @@ export class ProjectMembersController {
   }
 
   @Post()
+  @Throttle({ limit: 30, windowMs: 60_000 })
   @Roles(Role.OWNER, Role.ADMIN)
   @ApiOperation({ summary: 'Add a member by email' })
   @ApiOkResponse({ type: ProjectMemberResponseDto })
-  add(
-    @Param('projectId') projectId: string,
-    @Body() dto: AddProjectMemberDto,
-  ) {
+  add(@Param('projectId') projectId: string, @Body() dto: AddProjectMemberDto) {
     return this.membersService.add(projectId, dto);
   }
 
@@ -65,14 +68,9 @@ export class ProjectMembersController {
     @Param('projectId') projectId: string,
     @Param('userId') userId: string,
     @Body() dto: UpdateProjectMemberDto,
-    @Request() req: ExpressRequest,
+    @CurrentUser('userId') actorId: string,
   ) {
-    return this.membersService.updateRole(
-      projectId,
-      userId,
-      dto,
-      req.user!['userId'],
-    );
+    return this.membersService.updateRole(projectId, userId, dto, actorId);
   }
 
   @Post(':userId/transfer-ownership')
@@ -84,13 +82,9 @@ export class ProjectMembersController {
   transferOwnership(
     @Param('projectId') projectId: string,
     @Param('userId') userId: string,
-    @Request() req: ExpressRequest,
+    @CurrentUser('userId') actorId: string,
   ) {
-    return this.membersService.transferOwnership(
-      projectId,
-      userId,
-      req.user!['userId'],
-    );
+    return this.membersService.transferOwnership(projectId, userId, actorId);
   }
 
   @Delete(':userId')
@@ -102,12 +96,8 @@ export class ProjectMembersController {
   remove(
     @Param('projectId') projectId: string,
     @Param('userId') userId: string,
-    @Request() req: ExpressRequest,
+    @CurrentUser('userId') actorId: string,
   ) {
-    return this.membersService.remove(
-      projectId,
-      userId,
-      req.user!['userId'],
-    );
+    return this.membersService.remove(projectId, userId, actorId);
   }
 }

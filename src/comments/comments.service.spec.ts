@@ -7,11 +7,15 @@ import { AttachmentsService } from '../attachments/attachments.service';
 describe('CommentsService', () => {
   let service: CommentsService;
 
-  const mockPrisma = {
+  const mockPrisma: any = {
     comment: {
       create: jest.fn(),
       update: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      count: jest.fn(),
     },
+    $transaction: jest.fn(),
   };
 
   const mockAuthz = {
@@ -20,7 +24,8 @@ describe('CommentsService', () => {
   };
 
   const mockAttachments = {
-    removeForComments: jest.fn(),
+    detachFor: jest.fn(),
+    purgeObjects: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -35,6 +40,7 @@ describe('CommentsService', () => {
 
     service = module.get<CommentsService>(CommentsService);
     jest.clearAllMocks();
+    mockPrisma.$transaction.mockImplementation((cb: any) => cb(mockPrisma));
   });
 
   it('should create a comment', async () => {
@@ -42,12 +48,39 @@ describe('CommentsService', () => {
     const mockComment = { id: '1', ...dto, taskId: 't1', authorId: 'u1' };
     mockPrisma.comment.create.mockResolvedValue(mockComment);
 
-    const result = await service.create('t1', dto as any, 'u1');
+    const result = await service.create('t1', dto, 'u1');
 
     expect(result).toEqual(mockComment);
     expect(mockPrisma.comment.create).toHaveBeenCalledWith({
       data: { content: dto.content, taskId: 't1', authorId: 'u1' },
     });
+  });
+
+  it('lists comments oldest first with a stable tiebreaker', async () => {
+    mockPrisma.comment.count.mockResolvedValue(0);
+    mockPrisma.comment.findMany.mockResolvedValue([]);
+
+    await service.findAll('t1');
+
+    expect(mockPrisma.comment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      }),
+    );
+  });
+
+  it('never exposes storage keys on a single comment', async () => {
+    mockPrisma.comment.findFirst.mockResolvedValue({
+      id: 'c1',
+      attachments: [],
+    });
+
+    await service.findOne('c1');
+
+    const { include } = mockPrisma.comment.findFirst.mock.calls[0][0];
+    expect(include.attachments.select).toBeDefined();
+    expect(include.attachments.select).not.toHaveProperty('s3Key');
+    expect(include.attachments.select).not.toHaveProperty('s3Bucket');
   });
 
   it('should update a comment after authz checks', async () => {
@@ -61,7 +94,7 @@ describe('CommentsService', () => {
     mockAuthz.assertCommentAuthorOrAdmin.mockResolvedValue(undefined);
     mockPrisma.comment.update.mockResolvedValue({ id: 'c1', ...dto });
 
-    const result = await service.update('c1', dto as any, 'u1');
+    const result = await service.update('c1', dto, 'u1');
 
     expect(mockAuthz.assertCommentAccess).toHaveBeenCalledWith('u1', 'c1');
     expect(mockAuthz.assertCommentAuthorOrAdmin).toHaveBeenCalledWith(
@@ -71,21 +104,52 @@ describe('CommentsService', () => {
     expect(result).toEqual({ id: 'c1', ...dto });
   });
 
-  it('should soft delete and clean attachments', async () => {
-    const comment = {
-      id: 'c1',
-      authorId: 'u1',
-      task: { projectId: 'p1' },
-    };
-    mockAuthz.assertCommentAccess.mockResolvedValue(comment);
-    mockAuthz.assertCommentAuthorOrAdmin.mockResolvedValue(undefined);
-    mockPrisma.comment.update.mockResolvedValue({
-      id: 'c1',
-      deletedAt: new Date(),
+  describe('softDelete', () => {
+    const comment = { id: 'c1', authorId: 'u1', task: { projectId: 'p1' } };
+
+    beforeEach(() => {
+      mockAuthz.assertCommentAccess.mockResolvedValue(comment);
+      mockAuthz.assertCommentAuthorOrAdmin.mockResolvedValue(undefined);
     });
 
-    await service.softDelete('c1', 'u1');
+    it('detaches attachment rows in the transaction and purges files after commit', async () => {
+      const stored = [{ s3Bucket: 'b', s3Key: 'k' }];
+      const order: string[] = [];
+      mockAttachments.detachFor.mockImplementation(async () => {
+        order.push('detach');
+        return stored;
+      });
+      mockPrisma.comment.update.mockImplementation(async () => {
+        order.push('update');
+        return { id: 'c1', deletedAt: new Date() };
+      });
+      mockPrisma.$transaction.mockImplementation(async (cb: any) => {
+        const result = await cb(mockPrisma);
+        order.push('commit');
+        return result;
+      });
+      mockAttachments.purgeObjects.mockImplementation(async () => {
+        order.push('purge');
+      });
 
-    expect(mockAttachments.removeForComments).toHaveBeenCalledWith(['c1']);
+      await service.softDelete('c1', 'u1');
+
+      expect(mockAttachments.detachFor).toHaveBeenCalledWith(mockPrisma, {
+        commentIds: ['c1'],
+      });
+      expect(mockAttachments.purgeObjects).toHaveBeenCalledWith(stored);
+      expect(order).toEqual(['detach', 'update', 'commit', 'purge']);
+    });
+
+    it('leaves the files alone when the transaction fails', async () => {
+      mockAttachments.detachFor.mockResolvedValue([
+        { s3Bucket: 'b', s3Key: 'k' },
+      ]);
+      mockPrisma.comment.update.mockRejectedValue(new Error('db down'));
+
+      await expect(service.softDelete('c1', 'u1')).rejects.toThrow('db down');
+
+      expect(mockAttachments.purgeObjects).not.toHaveBeenCalled();
+    });
   });
 });

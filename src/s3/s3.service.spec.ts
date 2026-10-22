@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { S3Service } from './s3.service';
+import { S3Service, contentDisposition } from './s3.service';
 import {
   S3Client,
   PutObjectCommand,
@@ -44,12 +44,29 @@ describe('S3Service', () => {
       s3Mock.on(PutObjectCommand).resolves({});
 
       const buffer = Buffer.from('test');
-      const result = await service.uploadFile(buffer, 'test.txt', 'text/plain', 'uploads');
+      const result = await service.uploadFile(buffer, 'text/plain', 'uploads');
 
       expect(result).toHaveProperty('key');
-      expect(result.key).toMatch(/^uploads\/.*\.txt$/);
+      expect(result.key).toMatch(/^uploads\/[0-9a-f-]{36}\.txt$/);
       expect(result.bucket).toBe('test-bucket');
       expect(s3Mock.commandCalls(PutObjectCommand).length).toBe(1);
+    });
+
+    it('derives the key extension from the MIME type, never from user input', async () => {
+      s3Mock.on(PutObjectCommand).resolves({});
+
+      const png = await service.uploadFile(Buffer.from('x'), 'image/png', 'f');
+      const unknown = await service.uploadFile(
+        Buffer.from('x'),
+        'application/x-weird',
+        'f',
+      );
+
+      expect(png.key).toMatch(/\.png$/);
+      expect(unknown.key).toMatch(/\.bin$/);
+      expect(
+        s3Mock.commandCalls(PutObjectCommand)[0].args[0].input.ContentType,
+      ).toBe('image/png');
     });
   });
 
@@ -73,10 +90,59 @@ describe('S3Service', () => {
       const expectedUrl = 'https://test-url.com';
       (getSignedUrl as jest.Mock).mockResolvedValue(expectedUrl);
 
-      const url = await service.getPresignedUrl('test-bucket', 'test-key', 3600);
+      const url = await service.getPresignedUrl(
+        'test-bucket',
+        'test-key',
+        3600,
+      );
 
       expect(url).toBe(expectedUrl);
       expect(getSignedUrl).toHaveBeenCalled();
+    });
+
+    it('forces a download with the original file name by default', async () => {
+      (getSignedUrl as jest.Mock).mockResolvedValue('https://x');
+
+      await service.getPresignedUrl('b', 'k', 60, { fileName: 'report.pdf' });
+
+      const command = (getSignedUrl as jest.Mock).mock.calls[0][1];
+      expect(command.input.ResponseContentDisposition).toBe(
+        `attachment; filename="report.pdf"; filename*=UTF-8''report.pdf`,
+      );
+    });
+
+    it('can render images inline', async () => {
+      (getSignedUrl as jest.Mock).mockResolvedValue('https://x');
+
+      await service.getPresignedUrl('b', 'k', 60, {
+        fileName: 'a.png',
+        inline: true,
+      });
+
+      const command = (getSignedUrl as jest.Mock).mock.calls[0][1];
+      expect(command.input.ResponseContentDisposition).toMatch(/^inline;/);
+    });
+
+    it('sets no disposition when no file name is given', async () => {
+      (getSignedUrl as jest.Mock).mockResolvedValue('https://x');
+      await service.getPresignedUrl('b', 'k');
+      const command = (getSignedUrl as jest.Mock).mock.calls[0][1];
+      expect(command.input.ResponseContentDisposition).toBeUndefined();
+    });
+  });
+
+  describe('contentDisposition', () => {
+    it('keeps non-ASCII names via filename* with an ASCII fallback', () => {
+      const header = contentDisposition('attachment', 'звіт.pdf');
+      expect(header).toBe(
+        `attachment; filename="____.pdf"; filename*=UTF-8''%D0%B7%D0%B2%D1%96%D1%82.pdf`,
+      );
+    });
+
+    it('cannot be broken out of by quotes or header-injection characters', () => {
+      const header = contentDisposition('attachment', 'a"b\\c\r\nX: y.txt');
+      expect(header).not.toMatch(/[\r\n]/);
+      expect(header.match(/filename="([^"]*)"/)?.[1]).toBe('a_b_c__X: y.txt');
     });
   });
 });

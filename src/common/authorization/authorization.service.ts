@@ -95,7 +95,13 @@ export class AuthorizationService {
     return comment;
   }
 
-  /** Resolve project from attachment (task or comment), then assert membership */
+  /**
+   * Resolve project from attachment (task or comment), then assert membership.
+   *
+   * Avatars belong to no project. They are readable by their owner and by
+   * anyone who shares at least one live project with the owner (otherwise
+   * members could never see each other's avatars); everyone else gets 404.
+   */
   async assertAttachmentAccess(
     userId: string,
     attachmentId: string,
@@ -117,24 +123,64 @@ export class AuthorizationService {
       throw new NotFoundException('Attachment not found');
     }
 
-    let projectId: string | undefined;
+    const projectId =
+      attachment.task?.projectId ?? attachment.comment?.task?.projectId;
 
-    if (attachment.task?.projectId) {
-      projectId = attachment.task.projectId;
-    } else if (attachment.comment?.task?.projectId) {
-      projectId = attachment.comment.task.projectId;
-    }
-
-    // Avatar attachments are user-owned; only the uploader may access by default
     if (!projectId) {
       if (attachment.uploadedById !== userId) {
-        throw new NotFoundException('Attachment not found');
+        const sharesProject = await this.prisma.projectMember.findFirst({
+          where: {
+            userId,
+            project: {
+              deletedAt: null,
+              members: { some: { userId: attachment.uploadedById } },
+            },
+          },
+          select: { id: true },
+        });
+
+        if (!sharesProject) {
+          throw new NotFoundException('Attachment not found');
+        }
       }
-      return attachment;
+      return { ...attachment, projectId: undefined };
     }
 
     await this.assertProjectMember(userId, projectId, allowedRoles);
-    return attachment;
+    return { ...attachment, projectId };
+  }
+
+  /**
+   * Attachment mutation rule: the uploader OR a project OWNER/ADMIN.
+   * Avatars (no project) can only be changed by their owner.
+   * Call after assertAttachmentAccess (read access already verified).
+   */
+  async assertAttachmentManage(
+    userId: string,
+    attachment: { uploadedById: string; projectId?: string },
+  ) {
+    if (attachment.uploadedById === userId) {
+      return;
+    }
+
+    if (!attachment.projectId) {
+      throw new ForbiddenException('You can only modify your own avatar');
+    }
+
+    const membership = await this.prisma.projectMember.findUnique({
+      where: {
+        userId_projectId: { userId, projectId: attachment.projectId },
+      },
+    });
+
+    const isAdmin =
+      membership?.role === Role.OWNER || membership?.role === Role.ADMIN;
+
+    if (!isAdmin) {
+      throw new ForbiddenException(
+        'Only the uploader or a project admin can modify this attachment',
+      );
+    }
   }
 
   /**

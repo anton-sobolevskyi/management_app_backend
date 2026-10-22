@@ -17,13 +17,22 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/src/generated ./src/generated
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
+COPY docker-entrypoint.sh ./docker-entrypoint.sh
+
+# Don't run as root
+RUN chown -R node:node /app
+USER node
 
 EXPOSE 3000
 
-CMD npx prisma migrate deploy && node dist/src/main
+# Readiness: the app answers AND the database does
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+ENTRYPOINT ["./docker-entrypoint.sh"]

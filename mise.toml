@@ -14,17 +14,16 @@ test-unit = { description = "Run unit tests", run = [
 # it does not connect. CI e2e has no DB URL until Testcontainers starts, so
 # fall back to a placeholder. Real URL is set in e2e globalSetup.
 test-e2e = { description = "Run e2e tests (spins up Postgres via testcontainers)", run = [
-  "DATABASE_URL=${DATABASE_URL:-postgresql://test:test@127.0.0.1:5432/test} npm run db:generate",
+  "npm run db:generate",
   "NODE_OPTIONS=--experimental-vm-modules npm run test:e2e",
 ] }
 
 # Database Management
-db-up = { description = "Start database containers", run = "docker compose up -d" }
+db-up = { description = "Start database containers (waits until healthy)", run = "docker compose up -d --wait" }
 db-down = { description = "Stop database containers", run = "docker compose down" }
 db-stop = { description = "Stop database containers", run = "docker compose stop" }
 db-setup = { description = "Start DB, generate client, run migrations, and seed", run = [
-  "docker compose up -d",
-  "sleep 5",
+  "docker compose up -d --wait",
   "npm run db:generate",
   "npm run db:migrate",
   "npm run db:seed",

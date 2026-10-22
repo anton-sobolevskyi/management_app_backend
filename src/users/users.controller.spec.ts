@@ -26,6 +26,7 @@ describe('UsersController', () => {
             update: jest.fn(),
             getMe: jest.fn(),
             softDelete: jest.fn(),
+            changePassword: jest.fn(),
           },
         },
       ],
@@ -39,61 +40,68 @@ describe('UsersController', () => {
     expect(controller).toBeDefined();
   });
 
-  describe('getMe', () => {
-    it('should call service.getMe with userId from request', async () => {
-      const mockRequest = {
-        user: { userId: 'user-1', email: 'test@example.com' },
-      };
-      const serviceSpy = jest.spyOn(service, 'getMe');
-      serviceSpy.mockResolvedValue(mockUserResponse);
+  describe('me', () => {
+    it('getMe uses the authenticated user id', async () => {
+      jest.spyOn(service, 'getMe').mockResolvedValue(mockUserResponse);
+      await expect(controller.getMe('user-1')).resolves.toEqual(
+        mockUserResponse,
+      );
+      expect(service.getMe).toHaveBeenCalledWith('user-1');
+    });
 
-      const result = await controller.getMe(mockRequest as any);
+    it('updateMe updates the authenticated user', async () => {
+      jest.spyOn(service, 'update').mockResolvedValue(mockUserResponse);
+      await controller.updateMe('user-1', { name: 'New' });
+      expect(service.update).toHaveBeenCalledWith('user-1', { name: 'New' });
+    });
 
-      expect(serviceSpy).toHaveBeenCalledWith('user-1');
-      expect(result).toEqual(mockUserResponse);
+    it('deleteMe deletes the authenticated user', async () => {
+      jest.spyOn(service, 'softDelete').mockResolvedValue(mockUserResponse);
+      await controller.deleteMe('user-1');
+      expect(service.softDelete).toHaveBeenCalledWith('user-1');
+    });
+
+    it('changePassword answers 204 and delegates', async () => {
+      const dto = { currentPassword: 'old1', newPassword: 'new-pass-1' };
+      await controller.changePassword('user-1', dto);
+      expect(service.changePassword).toHaveBeenCalledWith('user-1', dto);
+      expect(
+        Reflect.getMetadata(
+          '__httpCode__',
+          UsersController.prototype.changePassword,
+        ),
+      ).toBe(204);
     });
   });
 
-  describe('findOne', () => {
+  describe('deprecated /:id routes (self only)', () => {
     it('allows self access', async () => {
-      const req = { user: { userId: 'user-1' } } as any;
       jest.spyOn(service, 'findOne').mockResolvedValue(mockUserResponse);
-      await expect(controller.findOne('user-1', req)).resolves.toEqual(
+      await expect(controller.findOne('user-1', 'user-1')).resolves.toEqual(
         mockUserResponse,
       );
     });
 
-    it('forbids access to other users', async () => {
-      const req = { user: { userId: 'user-1' } } as any;
-      try {
-        await controller.findOne('user-2', req);
-      } catch (e) {
-        expect(e).toBeInstanceOf(ForbiddenException);
-      }
+    it('forbids access to other users', () => {
+      expect(() => controller.findOne('user-2', 'user-1')).toThrow(
+        ForbiddenException,
+      );
+      expect(() => controller.update('user-2', {}, 'user-1')).toThrow(
+        ForbiddenException,
+      );
+      expect(() => controller.softDelete('user-2', 'user-1')).toThrow(
+        ForbiddenException,
+      );
+      expect(service.findOne).not.toHaveBeenCalled();
     });
-  });
 
-  describe('update', () => {
-    it('allows self update', async () => {
-      const req = { user: { userId: 'user-1' } } as any;
-      const updateDto = { name: 'Updated Name' };
-      const updated = { ...mockUserResponse, name: 'Updated Name' };
-      const updateSpy = jest.spyOn(service, 'update');
-      updateSpy.mockResolvedValue(updated);
-
-      const result = await controller.update('user-1', updateDto, req);
-      expect(updateSpy).toHaveBeenCalledWith('user-1', updateDto);
-      expect(result).toEqual(updated);
-    });
-  });
-
-  describe('softDelete', () => {
-    it('allows self delete', async () => {
-      const req = { user: { userId: 'user-1' } } as any;
-      const softDeleteSpy = jest.spyOn(service, 'softDelete');
-      softDeleteSpy.mockResolvedValue(mockUserResponse);
-      await controller.softDelete('user-1', req);
-      expect(softDeleteSpy).toHaveBeenCalledWith('user-1');
+    it('allows self update and delete', async () => {
+      jest.spyOn(service, 'update').mockResolvedValue(mockUserResponse);
+      jest.spyOn(service, 'softDelete').mockResolvedValue(mockUserResponse);
+      await controller.update('user-1', { name: 'X' }, 'user-1');
+      await controller.softDelete('user-1', 'user-1');
+      expect(service.update).toHaveBeenCalledWith('user-1', { name: 'X' });
+      expect(service.softDelete).toHaveBeenCalledWith('user-1');
     });
   });
 });

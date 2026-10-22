@@ -16,6 +16,7 @@ export class LocalStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    return user;
+    // Same shape as the JWT strategy, so `req.user` is always { userId, email }
+    return { userId: user.id, email: user.email };
   }
 }

@@ -12,6 +12,8 @@ import {
   paginationArgs,
 } from '../common/dto/pagination.dto';
 
+const MEMBER_PREVIEW_LIMIT = 20;
+
 @Injectable()
 export class ProjectsService {
   constructor(
@@ -41,7 +43,7 @@ export class ProjectsService {
   ): Promise<PaginatedResponseDto<ProjectResponseDto>> {
     const { page, limit, skip } = paginationArgs(query);
     const where = {
-      deletedAt: null as null,
+      deletedAt: null,
       members: { some: { userId } },
     };
 
@@ -49,14 +51,26 @@ export class ProjectsService {
       this.prisma.project.count({ where }),
       this.prisma.project.findMany({
         where,
-        include: { members: true },
-        orderBy: { createdAt: 'desc' },
+        include: {
+          // A list view doesn't need every member of every project
+          members: { orderBy: { joinedAt: 'asc' }, take: MEMBER_PREVIEW_LIMIT },
+          _count: { select: { members: true } },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip,
         take: limit,
       }),
     ]);
 
-    return paginate(data, total, page, limit);
+    return paginate(
+      data.map(({ _count, ...project }) => ({
+        ...project,
+        memberCount: _count.members,
+      })),
+      total,
+      page,
+      limit,
+    );
   }
 
   async findOne(id: string): Promise<ProjectResponseDto> {
@@ -101,37 +115,46 @@ export class ProjectsService {
 
     const now = new Date();
 
-    const tasks = await this.prisma.task.findMany({
-      where: { projectId: id, deletedAt: null },
-      select: { id: true },
-    });
-    const taskIds = tasks.map((t) => t.id);
+    // All-or-nothing in the database; files are removed only after commit
+    const { project, stored } = await this.prisma.$transaction(async (tx) => {
+      const tasks = await tx.task.findMany({
+        where: { projectId: id, deletedAt: null },
+        select: { id: true },
+      });
+      const taskIds = tasks.map((t) => t.id);
 
-    if (taskIds.length > 0) {
-      const comments = await this.prisma.comment.findMany({
+      // Attachments of already-deleted tasks were removed when those were deleted
+      const comments = await tx.comment.findMany({
         where: { taskId: { in: taskIds }, deletedAt: null },
         select: { id: true },
       });
-      const commentIds = comments.map((c) => c.id);
 
-      await this.attachmentsService.removeForComments(commentIds);
-      await this.attachmentsService.removeForTasks(taskIds);
+      const stored = await this.attachmentsService.detachFor(tx, {
+        taskIds,
+        commentIds: comments.map((c) => c.id),
+      });
 
-      await this.prisma.comment.updateMany({
+      await tx.comment.updateMany({
         where: { taskId: { in: taskIds }, deletedAt: null },
         data: { deletedAt: now },
       });
-    }
 
-    await this.prisma.task.updateMany({
-      where: { projectId: id, deletedAt: null },
-      data: { deletedAt: now },
+      await tx.task.updateMany({
+        where: { projectId: id, deletedAt: null },
+        data: { deletedAt: now },
+      });
+
+      const project = await tx.project.update({
+        where: { id },
+        data: { deletedAt: now },
+        include: { members: true },
+      });
+
+      return { project, stored };
     });
 
-    return this.prisma.project.update({
-      where: { id },
-      data: { deletedAt: now },
-      include: { members: true },
-    });
+    await this.attachmentsService.purgeObjects(stored);
+
+    return project;
   }
 }
