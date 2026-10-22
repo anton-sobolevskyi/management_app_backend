@@ -1,3 +1,4 @@
+import { Type as NestType } from '@nestjs/common';
 import { ApiPropertyOptional, ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, Max, Min } from 'class-validator';
@@ -36,6 +37,15 @@ export class PaginationMetaDto {
 export class PaginatedResponseDto<T> {
   data: T[];
   meta: PaginationMetaDto;
+}
+
+export function PaginatedResponseDtoFor<T>(ItemDto: NestType<T>) {
+  class PaginatedDto extends PaginatedResponseDto<T> {
+    @ApiProperty({ type: () => ItemDto, isArray: true })
+    declare data: T[];
+  }
+
+  return PaginatedDto;
 }
 
 export function paginate<T>(

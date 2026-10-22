@@ -16,6 +16,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ApiBearerAuth, ApiOkResponse } from '@nestjs/swagger';
 import {
   PaginatedResponseDto,
+  PaginatedResponseDtoFor,
   PaginationQueryDto,
 } from '../common/dto/pagination.dto';
 import { CommentResponseDto } from './dto/comment-response.dto';
@@ -36,7 +37,7 @@ export class CommentsController {
     return this.commentsService.create(taskId, dto, userId);
   }
 
-  @ApiOkResponse({ type: PaginatedResponseDto<CommentResponseDto> })
+  @ApiOkResponse({ type: PaginatedResponseDtoFor(CommentResponseDto) })
   @Get()
   findAll(@Param('taskId') taskId: string, @Query() query: PaginationQueryDto) {
     return this.commentsService.findAll(taskId, query);

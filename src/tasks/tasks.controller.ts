@@ -21,7 +21,10 @@ import {
 } from '@nestjs/swagger';
 import { TaskQueryDto } from './dto/task-query.dto';
 import { TaskResponseDto } from './dto/task-response.dto';
-import { PaginatedResponseDto } from '../common/dto/pagination.dto';
+import {
+  PaginatedResponseDto,
+  PaginatedResponseDtoFor,
+} from '../common/dto/pagination.dto';
 
 @ApiTags('project tasks')
 @UseGuards(JwtAuthGuard, ProjectMemberGuard)
@@ -41,7 +44,7 @@ export class TasksController {
     return this.tasksService.create(projectId, dto, userId);
   }
 
-  @ApiOkResponse({ type: PaginatedResponseDto<TaskResponseDto> })
+  @ApiOkResponse({ type: PaginatedResponseDtoFor(TaskResponseDto) })
   @ApiOperation({
     summary: 'Get paginated tasks in a project',
     description:

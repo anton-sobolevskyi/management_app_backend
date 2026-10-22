@@ -22,6 +22,7 @@ import { ApiBearerAuth, ApiOkResponse, ApiOperation } from '@nestjs/swagger';
 import { ProjectResponseDto } from './dto/project-response.dto';
 import {
   PaginatedResponseDto,
+  PaginatedResponseDtoFor,
   PaginationQueryDto,
 } from '../common/dto/pagination.dto';
 
@@ -37,7 +38,7 @@ export class ProjectsController {
     return this.projectsService.create(dto, userId);
   }
 
-  @ApiOkResponse({ type: PaginatedResponseDto<ProjectResponseDto> })
+  @ApiOkResponse({ type: PaginatedResponseDtoFor(ProjectResponseDto) })
   @Get()
   @ApiOperation({
     summary: 'Retrieve a paginated list of projects',

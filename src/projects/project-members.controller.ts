@@ -31,6 +31,7 @@ import {
 import { ProjectMemberResponseDto } from './dto/project-member-response.dto';
 import {
   PaginatedResponseDto,
+  PaginatedResponseDtoFor,
   PaginationQueryDto,
 } from '../common/dto/pagination.dto';
 
@@ -44,7 +45,7 @@ export class ProjectMembersController {
 
   @Get()
   @ApiOperation({ summary: 'List project members (paginated)' })
-  @ApiOkResponse({ type: PaginatedResponseDto<ProjectMemberResponseDto> })
+  @ApiOkResponse({ type: PaginatedResponseDtoFor(ProjectMemberResponseDto) })
   findAll(
     @Param('projectId') projectId: string,
     @Query() query: PaginationQueryDto,
