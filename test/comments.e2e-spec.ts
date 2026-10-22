@@ -1,9 +1,9 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { createTestApp, getAuthToken } from './helpers';
-import { ProjectResponseDto } from 'src/projects/dto/project-response.dto';
-import { TaskResponseDto } from 'src/tasks/dto/task-response.dto';
-import { CommentResponseDto } from 'src/comments/dto/comment-response.dto';
+import { ProjectResponseDto } from '../src/projects/dto/project-response.dto';
+import { TaskResponseDto } from '../src/tasks/dto/task-response.dto';
+import { CommentResponseDto } from '../src/comments/dto/comment-response.dto';
 
 describe('Comments (e2e)', () => {
   let app: INestApplication;

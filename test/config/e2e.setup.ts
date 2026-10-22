@@ -2,7 +2,10 @@ import {
   PostgreSqlContainer,
   StartedPostgreSqlContainer,
 } from '@testcontainers/postgresql';
-import { MinioContainer, StartedMinioContainer } from '@testcontainers/minio';
+import {
+  LocalstackContainer,
+  StartedLocalStackContainer,
+} from '@testcontainers/localstack';
 import { CreateBucketCommand, S3Client } from '@aws-sdk/client-s3';
 import { execSync } from 'child_process';
 import { config } from 'dotenv';
@@ -15,9 +18,9 @@ config({
 });
 
 let postgres: StartedPostgreSqlContainer;
-let minio: StartedMinioContainer;
+let storage: StartedLocalStackContainer;
 
-jest.setTimeout(60_000);
+jest.setTimeout(120_000);
 
 beforeAll(async () => {
   async function startPostgres() {
@@ -28,25 +31,22 @@ beforeAll(async () => {
       .start();
   }
 
-  async function startMinio() {
-    return new MinioContainer('minio/minio:RELEASE.2024-12-13T22-19-12Z')
-      .withUsername('admin')
-      .withPassword('pass123')
-      .start();
+  async function startStorage() {
+    return new LocalstackContainer('localstack/localstack:2.2.0').start();
   }
 
-  [postgres, minio] = await Promise.all([startPostgres(), startMinio()]);
+  [postgres, storage] = await Promise.all([startPostgres(), startStorage()]);
 
   const databaseUrl = postgres.getConnectionUri();
-  const s3Endpoint = `http://${minio.getHost()}:${minio.getPort()}`;
+  const s3Endpoint = storage.getConnectionUri();
 
   Object.assign(process.env, {
     DATABASE_URL: databaseUrl,
-    S3_ENDPOINT: s3Endpoint,
-    S3_ACCESS_KEY: 'admin',
-    S3_SECRET_KEY: 'pass123',
-    S3_BUCKET: 'test-bucket',
-    S3_REGION: 'us-east-1',
+    AWS_S3_ENDPOINT: s3Endpoint,
+    AWS_ACCESS_KEY_ID: 'admin',
+    AWS_SECRET_ACCESS_KEY: 'pass123',
+    AWS_S3_BUCKET: 'test-bucket',
+    AWS_REGION: 'us-east-1',
   });
 
   execSync('npx prisma migrate deploy', {
@@ -65,9 +65,9 @@ beforeAll(async () => {
   });
 
   await s3.send(new CreateBucketCommand({ Bucket: 'test-bucket' }));
-  s3.destroy();
+  // s3.destroy();
 });
 
 afterAll(async () => {
-  await Promise.all([postgres?.stop(), minio?.stop()]);
+  await Promise.all([postgres?.stop(), storage?.stop()]);
 });
