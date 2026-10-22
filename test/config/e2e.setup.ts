@@ -14,50 +14,60 @@ config({
   quiet: true,
 });
 
-let postgresContainer: StartedPostgreSqlContainer;
-let minioContainer: StartedMinioContainer;
+let postgres: StartedPostgreSqlContainer;
+let minio: StartedMinioContainer;
 
-jest.setTimeout(120000);
+jest.setTimeout(60_000);
 
 beforeAll(async () => {
-  // Throwaway Postgres + S3-compatible storage: no cloud credentials needed,
-  // and tests never touch a real bucket.
-  [postgresContainer, minioContainer] = await Promise.all([
-    new PostgreSqlContainer('postgres:16-alpine')
+  async function startPostgres() {
+    return new PostgreSqlContainer('postgres:16-alpine')
       .withDatabase('test_db')
       .withUsername('test_user')
       .withPassword('test_password')
-      .start(),
-    new MinioContainer('minio/minio:RELEASE.2024-01-16T16-07-38Z')
-      .withUsername('minioadmin')
-      .withPassword('minioadmin')
-      .start(),
-  ]);
+      .start();
+  }
 
-  process.env.DATABASE_URL = postgresContainer.getConnectionUri();
+  async function startMinio() {
+    return new MinioContainer('minio/minio:RELEASE.2024-12-13T22-19-12Z')
+      .withUsername('admin')
+      .withPassword('pass123')
+      .start();
+  }
 
-  process.env.AWS_S3_ENDPOINT = minioContainer.getConnectionUrl();
-  process.env.AWS_ACCESS_KEY_ID = minioContainer.getUsername();
-  process.env.AWS_SECRET_ACCESS_KEY = minioContainer.getPassword();
+  [postgres, minio] = await Promise.all([startPostgres(), startMinio()]);
 
-  const s3 = new S3Client({
-    region: process.env.AWS_REGION,
-    endpoint: process.env.AWS_S3_ENDPOINT,
-    forcePathStyle: true,
-    credentials: {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-    },
+  const databaseUrl = postgres.getConnectionUri();
+  const s3Endpoint = `http://${minio.getHost()}:${minio.getPort()}`;
+
+  Object.assign(process.env, {
+    DATABASE_URL: databaseUrl,
+    S3_ENDPOINT: s3Endpoint,
+    S3_ACCESS_KEY: 'admin',
+    S3_SECRET_KEY: 'pass123',
+    S3_BUCKET: 'test-bucket',
+    S3_REGION: 'us-east-1',
   });
-  await s3.send(new CreateBucketCommand({ Bucket: process.env.AWS_S3_BUCKET }));
 
-  // maxWorkers: 1 — sequential migrate only (client generated before Jest)
   execSync('npx prisma migrate deploy', {
     env: { ...process.env },
     stdio: 'inherit',
   });
+
+  const s3 = new S3Client({
+    endpoint: s3Endpoint,
+    region: 'us-east-1',
+    forcePathStyle: true,
+    credentials: {
+      accessKeyId: 'admin',
+      secretAccessKey: 'pass123',
+    },
+  });
+
+  await s3.send(new CreateBucketCommand({ Bucket: 'test-bucket' }));
+  s3.destroy();
 });
 
 afterAll(async () => {
-  await Promise.all([postgresContainer?.stop(), minioContainer?.stop()]);
+  await Promise.all([postgres?.stop(), minio?.stop()]);
 });
