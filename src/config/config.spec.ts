@@ -193,4 +193,39 @@ describe('validateEnv (secrets and durations)', () => {
       /Invalid duration/,
     );
   });
+
+  it('treats empty S3 endpoint/region (docker compose passes "") as unset', () => {
+    const cfg = getAppConfig(
+      env({ AWS_S3_ENDPOINT: '', AWS_REGION: ' ', JWT_ACCESS_SECRET: 'x' }),
+    );
+    expect(cfg.s3.endpoint).toBeUndefined();
+    expect(cfg.s3.region).toBeUndefined();
+  });
+
+  it('picks the mail transport: explicit, else smtp when SMTP_URL is set, else console', () => {
+    expect(getAppConfig(env({ MAIL_TRANSPORT: 'memory' })).mail.transport).toBe(
+      'memory',
+    );
+    expect(getAppConfig(env({ SMTP_URL: 'smtp://h:25' })).mail.transport).toBe(
+      'smtp',
+    );
+    expect(getAppConfig(env({})).mail.transport).toBe('console');
+    expect(getAppConfig(env({ MAIL_TRANSPORT: 'bogus' })).mail.transport).toBe(
+      'console',
+    );
+  });
+
+  it('refuses the in-memory mail transport in production', () => {
+    expect(() =>
+      validateEnv(
+        env({
+          DATABASE_URL: 'postgresql://x',
+          JWT_ACCESS_SECRET: 'a'.repeat(40),
+          NODE_ENV: 'production',
+          FRONTEND_URL: 'https://app.example.com',
+          MAIL_TRANSPORT: 'memory',
+        }),
+      ),
+    ).toThrow(/MAIL_TRANSPORT=memory/);
+  });
 });

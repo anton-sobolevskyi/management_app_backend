@@ -17,12 +17,10 @@ import { Role } from '../generated/prisma/enums';
 import {
   ApiBearerAuth,
   ApiOperation,
-  ApiProperty,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import { TaskResponseDto } from './dto/task-response.dto';
-import { PaginatedResponseDto } from '../common/dto/pagination.dto';
 
 @ApiTags('tasks')
 @UseGuards(JwtAuthGuard, ProjectMemberGuard)

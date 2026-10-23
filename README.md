@@ -1,10 +1,8 @@
 # Management App API
 
-[![API Docs](https://img.shields.io/badge/API-Swagger-85EA2D?logo=swagger)](https://management-app-backend-qs3u.onrender.com/api-docs)
-
 Modular project management backend API for teams — projects, tasks, comments, and file attachments.
 
-**Live API docs:** [management-app-backend-qs3u.onrender.com/api-docs](https://management-app-backend-qs3u.onrender.com/api-docs)
+Interactive API docs (Swagger) are served at `/api-docs` when enabled (see `SWAGGER_ENABLED`).
 
 ## Goals / Purpose
 
@@ -12,7 +10,7 @@ Portfolio project built to demonstrate backend engineering skills:
 
 - Production-style REST API with NestJS modular architecture
 - Auth (JWT + hashed refresh rotation), RBAC, soft deletes, S3 files
-- Prisma + PostgreSQL, Docker, CI, deployable setup (Render)
+- Prisma + PostgreSQL, Docker, CI, deployable setup (see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md))
 - Clear domain model for a real product (projects, tasks, collaboration)
 
 ## Features
@@ -42,7 +40,7 @@ Portfolio project built to demonstrate backend engineering skills:
 | API Docs   | Swagger / OpenAPI                  |
 | Validation | class-validator, class-transformer |
 | Tooling    | Docker Compose, mise, Husky        |
-| Deploy     | Render (`render.yaml`)             |
+| Deploy     | Docker (`docker-compose.prod.yml`) |
 | Language   | TypeScript                         |
 
 ## Architecture Highlights
@@ -91,28 +89,37 @@ cp .env.example .env
 
 ### Environment
 
-| Variable                                                     | Description                                                                                                                          |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `DATABASE_URL`                                               | PostgreSQL connection string (**required**)                                                                                          |
-| `JWT_ACCESS_SECRET`                                          | Access token secret (**required**)                                                                                                   |
-| `AWS_REGION` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3 credentials                                                                                                                       |
-| `AWS_S3_BUCKET` / `AWS_S3_ENDPOINT`                          | Bucket and optional custom endpoint                                                                                                  |
-| `FRONTEND_URL`                                               | CORS origin(s), comma-separated (**required in production**). Also the allow-list for `Origin` on `/auth/refresh` and `/auth/logout` |
-| `COOKIE_SAME_SITE`                                           | `lax` (default), `strict` or `none`. Use `none` (HTTPS only) when the frontend and API are on different sites                        |
-| `TRUST_PROXY`                                                | Reverse-proxy hops in front of the app (default `1` in production, `0` otherwise). Drives `req.ip` for rate limiting; avoid `true`   |
-| `JWT_EXPIRES_IN` / `REFRESH_TOKEN_EXPIRES_IN`                | Token lifetimes, e.g. `15m`, `7d` (defaults `15m` / `7d`). Validated at startup                                                      |
-| `BCRYPT_ROUNDS`                                              | bcrypt cost, 10–15 (default `12`)                                                                                                    |
-| `DB_POOL_MAX`                                                | Connections per instance (default `10`)                                                                                              |
-| `SWAGGER_ENABLED`                                            | `/api-docs` is on by default outside production; in production it is off unless set to `true`                                        |
-| `RATE_LIMIT_PER_MINUTE`                                      | Default per-IP ceiling for every route without its own `@Throttle` (default `600`; health probes are exempt)                         |
-| `DISABLE_THROTTLE`                                           | `true` turns rate limiting off (load tests only; the app refuses to start with it in production)                                     |
-| `UPLOAD_MAX_CONCURRENCY`                                     | Uploads received at once (each is buffered in memory, up to 10 MB); extra requests get `503` + `Retry-After` (default `8`)           |
-| `LOG_LEVEL`                                                  | pino level: `debug` (default outside production), `info` (production), `warn`, … Logs are JSON, one line per request with `req.id`   |
-| `RUN_MIGRATIONS`                                             | Docker only. `false` skips `prisma migrate deploy` at start (use with several replicas)                                              |
+| Variable                                                     | Description                                                                                                                                                                                                               |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                               | PostgreSQL connection string (**required**)                                                                                                                                                                               |
+| `JWT_ACCESS_SECRET`                                          | Access token secret (**required**)                                                                                                                                                                                        |
+| `AWS_REGION` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3 credentials                                                                                                                                                                                                            |
+| `AWS_S3_BUCKET` / `AWS_S3_ENDPOINT`                          | Bucket and optional custom endpoint                                                                                                                                                                                       |
+| `FRONTEND_URL`                                               | CORS origin(s), comma-separated (**required in production**). Also the allow-list for `Origin` on `/auth/refresh` and `/auth/logout`                                                                                      |
+| `COOKIE_SAME_SITE`                                           | `lax` (default), `strict` or `none`. Use `none` (HTTPS only) when the frontend and API are on different sites                                                                                                             |
+| `TRUST_PROXY`                                                | Reverse-proxy hops in front of the app (default `1` in production, `0` otherwise). Drives `req.ip` for rate limiting; avoid `true`                                                                                        |
+| `JWT_EXPIRES_IN` / `REFRESH_TOKEN_EXPIRES_IN`                | Token lifetimes, e.g. `15m`, `7d` (defaults `15m` / `7d`). Validated at startup                                                                                                                                           |
+| `BCRYPT_ROUNDS`                                              | bcrypt cost, 10–15 (default `12`)                                                                                                                                                                                         |
+| `DB_POOL_MAX`                                                | Connections per instance (default `10`)                                                                                                                                                                                   |
+| `SWAGGER_ENABLED`                                            | `/api-docs` is on by default outside production; in production it is off unless set to `true`                                                                                                                             |
+| `RATE_LIMIT_PER_MINUTE`                                      | Default per-IP ceiling for every route without its own `@Throttle` (default `600`; health probes are exempt)                                                                                                              |
+| `DISABLE_THROTTLE`                                           | `true` turns rate limiting off (load tests only; the app refuses to start with it in production)                                                                                                                          |
+| `UPLOAD_MAX_CONCURRENCY`                                     | Uploads received at once (each is buffered in memory, up to 10 MB); extra requests get `503` + `Retry-After` (default `8`)                                                                                                |
+| `SMTP_URL` / `MAIL_FROM` / `MAIL_TRANSPORT`                  | Outgoing e-mail (password reset, verification). `SMTP_URL` like `smtps://user:pass@host:465` enables real delivery; without it e-mails are only logged outside production (`MAIL_TRANSPORT`: `smtp`, `console`, `memory`) |
+| `LOG_LEVEL`                                                  | pino level: `debug` (default outside production), `info` (production), `warn`, … Logs are JSON, one line per request with `req.id`                                                                                        |
+| `RUN_MIGRATIONS`                                             | Docker only. `false` skips `prisma migrate deploy` at start (use with several replicas)                                                                                                                                   |
 
 In production `JWT_ACCESS_SECRET` must be at least 32 characters and `FRONTEND_URL` must be set; the app refuses to start otherwise.
 
 `JWT_REFRESH_SECRET` is no longer used: refresh tokens are opaque random strings stored hashed in the database. It may stay in existing deployments and is ignored.
+
+### Account recovery
+
+- `POST /auth/forgot-password` `{ email }` always answers `204` (no account discovery) and e-mails a one-hour, single-use link to `<FRONTEND_URL>/reset-password?token=…`.
+- `POST /auth/reset-password` `{ token, newPassword }` sets the password and ends every session.
+- Sign-up e-mails a 24-hour link to `<FRONTEND_URL>/verify-email?token=…`; `POST /auth/verify-email` `{ token }` confirms it, `POST /auth/resend-verification` (logged in) sends a new one. `emailVerifiedAt` is part of the user object. Login is **not** blocked for unverified accounts; enforce it where your product needs it.
+- The frontend must provide the `/reset-password` and `/verify-email` pages that read `token` from the query string and call the endpoints above.
+- Tokens are random, stored only as SHA-256 hashes, bound to the address they were sent to, and cleaned up hourly.
 
 ### Security notes
 
@@ -145,7 +152,7 @@ CI (`.github/workflows/ci.yml`) runs lint on production source, type-check, buil
 The image runs as the unprivileged `node` user, applies migrations on start and then `exec`s node
 so it receives SIGTERM and shuts down gracefully (Prisma pool closed, in-flight requests finished).
 Probes: `GET /` is liveness, `GET /health` is readiness (checks the database). The image's
-`HEALTHCHECK` and `render.yaml` use `/health`.
+`HEALTHCHECK` uses `/health`. Free hosting options and step-by-step deployment: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ### Seeding
 

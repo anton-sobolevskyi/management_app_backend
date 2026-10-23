@@ -1,7 +1,17 @@
 # Changes in this revision
 
-Security, performance and code-quality pass. Verified: `tsc`, ESLint, 345 unit tests
-(coverage 85 %), 90 e2e tests against real PostgreSQL 16 + an S3 emulator.
+Security, performance and code-quality pass. Verified: `tsc`, ESLint, unit tests
+(coverage 85 %), e2e tests against real PostgreSQL 16 + an S3 emulator.
+
+## Round 2 (added after the first revision)
+
+- **Password reset and e-mail verification** (`/auth/forgot-password`, `/auth/reset-password`,
+  `/auth/verify-email`, `/auth/resend-verification`), one-time hashed tokens, `MailService`
+  (SMTP / console / memory), migration `20261023120000_account_recovery`.
+- Deployment without Render: `docker-compose.prod.yml` (app + Postgres + Caddy HTTPS),
+  `.env.prod.example`, `docs/DEPLOYMENT.md` (free hosting options and caveats). `render.yaml` removed.
+- Empty `AWS_S3_ENDPOINT` / `AWS_REGION` are treated as unset.
+- Tests: 367 unit, 99 e2e (real PostgreSQL 16 + S3 emulator).
 
 ## Before deploying
 
@@ -25,6 +35,6 @@ Security, performance and code-quality pass. Verified: `tsc`, ESLint, 345 unit t
 ## Not included (need infrastructure or product decisions)
 
 Redis-backed rate limiting (a pluggable store is in place), streaming / presigned direct
-uploads, password reset, email verification, 2FA, invitation flow, antivirus scanning,
+uploads, 2FA, invitation flow, antivirus scanning,
 metrics / Sentry, cursor pagination, removal of deprecated `users/:id` routes,
 `forbidNonWhitelisted` (would reject clients that send extra fields).

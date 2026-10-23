@@ -26,6 +26,8 @@ model User {
   deletedAt    DateTime?
   // Bumped on password change; access tokens carry it and are rejected on mismatch.
   tokenVersion Int       @default(0)
+  // Set when the user proves they own the address (verification or reset link).
+  emailVerifiedAt DateTime?
 
   avatar             Attachment?     @relation("UserAvatar", fields: [avatarId], references: [id], onDelete: SetNull)
   projectMemberships ProjectMember[]
@@ -33,6 +35,7 @@ model User {
   assignedTasks      Task[]          @relation("TaskAssignedTo")
   comments           Comment[]
   refreshTokens      RefreshToken[]
+  oneTimeTokens      OneTimeToken[]
   uploadedFiles      Attachment[]    @relation("AttachmentUploadedBy")
 
   @@index([deletedAt])
@@ -203,4 +206,33 @@ enum Priority {
 enum AttachmentType {
   FILE
   IMAGE
+}
+
+// ─────────────────────────────────────────────
+// OneTimeToken (password reset / email verification links)
+// ─────────────────────────────────────────────
+
+enum OneTimeTokenType {
+  PASSWORD_RESET
+  EMAIL_VERIFICATION
+}
+
+model OneTimeToken {
+  id        String           @id @default(uuid())
+  type      OneTimeTokenType
+  // SHA-256 of the random token that was e-mailed; the raw token is never stored.
+  tokenHash String           @unique
+  // Address the link was sent to: a verification link must not verify a different
+  // address the user switched to afterwards.
+  email     String
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@index([expiresAt])
+  @@map("one_time_tokens")
 }

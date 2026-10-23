@@ -24,6 +24,7 @@ const userSelect = {
   email: true,
   name: true,
   avatarId: true,
+  emailVerifiedAt: true,
   createdAt: true,
 } as const;
 
@@ -49,7 +50,7 @@ export class UsersService {
   }
 
   async update(id: string, dto: UpdateUserDto): Promise<UserResponseDto> {
-    await this.findOne(id);
+    const current = await this.findOne(id);
 
     const email = dto.email ? normalizeEmail(dto.email) : undefined;
 
@@ -68,7 +69,12 @@ export class UsersService {
 
     return this.prisma.user.update({
       where: { id },
-      data: { ...dto, email },
+      data: {
+        ...dto,
+        email,
+        // A different address has not been confirmed yet
+        ...(email && email !== current.email ? { emailVerifiedAt: null } : {}),
+      },
       select: userSelect,
     });
   }

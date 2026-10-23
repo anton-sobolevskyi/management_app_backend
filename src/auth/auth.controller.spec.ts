@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { AccountRecoveryService } from './account-recovery.service';
 import { UnauthorizedException } from '@nestjs/common';
 import { Response } from 'express';
 
@@ -24,6 +25,16 @@ describe('AuthController', () => {
             login: jest.fn(),
             refreshTokens: jest.fn(),
             logout: jest.fn(),
+          },
+        },
+        {
+          provide: AccountRecoveryService,
+          useValue: {
+            sendVerificationEmailTo: jest.fn().mockResolvedValue(undefined),
+            sendVerificationEmail: jest.fn(),
+            requestPasswordReset: jest.fn().mockResolvedValue(undefined),
+            resetPassword: jest.fn(),
+            verifyEmail: jest.fn(),
           },
         },
       ],

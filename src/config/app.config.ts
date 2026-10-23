@@ -23,6 +23,12 @@ export interface AppConfig {
   swaggerEnabled: boolean;
   /** Escape hatch for load tests / local debugging; refused in production. */
   throttlingDisabled: boolean;
+  mail: {
+    /** smtp = real delivery; console = log only (dev); memory = keep in RAM (tests) */
+    transport: 'smtp' | 'console' | 'memory';
+    smtpUrl?: string;
+    from: string;
+  };
   /** Max uploads being received at once (each is buffered in memory). */
   maxConcurrentUploads: number;
   rateLimit: { defaultPerMinute: number };
@@ -52,6 +58,16 @@ function toInt(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+function resolveMailTransport(
+  env: NodeJS.ProcessEnv,
+): 'smtp' | 'console' | 'memory' {
+  const explicit = env.MAIL_TRANSPORT?.trim();
+  if (explicit === 'smtp' || explicit === 'console' || explicit === 'memory') {
+    return explicit;
+  }
+  return env.SMTP_URL?.trim() ? 'smtp' : 'console';
+}
+
 export function getAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const accessExpiresIn = env.JWT_EXPIRES_IN?.trim() || '15m';
   const refreshExpiresIn = env.REFRESH_TOKEN_EXPIRES_IN?.trim() || '7d';
@@ -68,8 +84,9 @@ export function getAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     bcryptRounds: Math.min(15, Math.max(10, toInt(env.BCRYPT_ROUNDS, 12))),
     s3: {
-      region: env.AWS_REGION,
-      endpoint: env.AWS_S3_ENDPOINT,
+      region: env.AWS_REGION?.trim() || undefined,
+      // An empty value (e.g. from docker compose) means "real AWS S3"
+      endpoint: env.AWS_S3_ENDPOINT?.trim() || undefined,
       accessKeyId: env.AWS_ACCESS_KEY_ID ?? '',
       secretAccessKey: env.AWS_SECRET_ACCESS_KEY ?? '',
       bucket: env.AWS_S3_BUCKET ?? '',
@@ -81,6 +98,11 @@ export function getAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         ? env.SWAGGER_ENABLED === 'true'
         : env.SWAGGER_ENABLED !== 'false',
     throttlingDisabled: env.DISABLE_THROTTLE === 'true',
+    mail: {
+      transport: resolveMailTransport(env),
+      smtpUrl: env.SMTP_URL?.trim() || undefined,
+      from: env.MAIL_FROM?.trim() || 'Management App <no-reply@localhost>',
+    },
     maxConcurrentUploads: toInt(env.UPLOAD_MAX_CONCURRENCY, 8),
     rateLimit: { defaultPerMinute: toInt(env.RATE_LIMIT_PER_MINUTE, 600) },
     // Housekeeping timers are noise in unit/e2e runs.

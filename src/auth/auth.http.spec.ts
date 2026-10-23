@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { AuthController } from './auth.controller';
+import { AccountRecoveryService } from './account-recovery.service';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AllExceptionsFilter } from '../common/filters/all-exceptions.filter';
@@ -95,7 +96,14 @@ describe('Auth refresh flow over HTTP', () => {
     const moduleRef = await Test.createTestingModule({
       imports: [JwtModule.register({})],
       controllers: [AuthController],
-      providers: [AuthService, { provide: PrismaService, useValue: fake }],
+      providers: [
+        AuthService,
+        { provide: PrismaService, useValue: fake },
+        {
+          provide: AccountRecoveryService,
+          useValue: { sendVerificationEmailTo: jest.fn() },
+        },
+      ],
     }).compile();
 
     app = moduleRef.createNestApplication();

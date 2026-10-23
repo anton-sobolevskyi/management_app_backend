@@ -13,6 +13,14 @@ export class UserResponseDto {
   @ApiProperty({ required: false, nullable: true, example: 'attachment-uuid' })
   avatarId: string | null;
 
+  @ApiProperty({
+    required: false,
+    nullable: true,
+    description:
+      'When the e-mail address was confirmed; null while unconfirmed',
+  })
+  emailVerifiedAt?: Date | null;
+
   @ApiProperty()
   createdAt: Date;
 }

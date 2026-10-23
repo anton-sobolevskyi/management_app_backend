@@ -1,7 +1,10 @@
 import { TokenCleanupService } from './token-cleanup.service';
 
 describe('TokenCleanupService', () => {
-  const prisma: any = { refreshToken: { deleteMany: jest.fn() } };
+  const prisma: any = {
+    refreshToken: { deleteMany: jest.fn() },
+    oneTimeToken: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+  };
   const service = new TokenCleanupService(prisma);
   const DAY = 86_400_000;
 

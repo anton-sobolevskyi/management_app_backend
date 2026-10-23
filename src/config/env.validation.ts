@@ -41,6 +41,10 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
       );
     }
 
+    if (env.MAIL_TRANSPORT === 'memory') {
+      throw new Error('MAIL_TRANSPORT=memory must not be used in production');
+    }
+
     if (env.DISABLE_THROTTLE === 'true') {
       throw new Error('DISABLE_THROTTLE must not be set in production');
     }

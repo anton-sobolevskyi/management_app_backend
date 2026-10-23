@@ -49,7 +49,15 @@ export class TokenCleanupService implements OnModuleInit, OnModuleDestroy {
         ],
       },
     });
-    return count;
+    const { count: oneTime } = await this.prisma.oneTimeToken.deleteMany({
+      where: {
+        OR: [
+          { expiresAt: { lt: now } },
+          { usedAt: { lt: new Date(now.getTime() - REVOKED_RETENTION_MS) } },
+        ],
+      },
+    });
+    return count + oneTime;
   }
 
   private async run() {
