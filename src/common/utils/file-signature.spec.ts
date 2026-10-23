@@ -17,7 +17,17 @@ const WEBP = Buffer.concat([
   Buffer.from('WEBPVP8 '),
 ]);
 const PDF = Buffer.from('%PDF-1.4\n%âãÏÓ');
-const DOC = pad(bytes(0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1));
+const OLE2 = bytes(0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1);
+const DOC = Buffer.concat([
+  OLE2,
+  Buffer.alloc(64),
+  Buffer.from('WordDocument', 'utf16le'),
+]);
+const XLS = Buffer.concat([
+  OLE2,
+  Buffer.alloc(64),
+  Buffer.from('Workbook', 'utf16le'),
+]);
 
 describe('file-signature', () => {
   describe('detectBinaryMime', () => {
@@ -35,6 +45,11 @@ describe('file-signature', () => {
       expect(
         detectBinaryMime(Buffer.concat([Buffer.from('\n\n  junk\n'), PDF])),
       ).toBe('application/pdf');
+    });
+
+    it('does not accept other OLE2 documents (.xls/.ppt) as Word', () => {
+      expect(detectBinaryMime(XLS)).toBeNull();
+      expect(detectBinaryMime(pad(OLE2))).toBeNull();
     });
 
     it('does not mistake a RIFF/WAV file for WebP', () => {

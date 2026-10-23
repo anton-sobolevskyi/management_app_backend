@@ -5,12 +5,20 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { randomUUID } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { hashToken } from '../common/utils/token-hash';
 import { normalizeEmail } from '../common/utils/email';
 import { getAppConfig } from '../config/app.config';
+
+/**
+ * A refresh token that was rotated (or logged out) a moment ago may still be
+ * presented by a second tab or a retried request. Within this window that is
+ * treated as a stale client, not as token theft, so it does not end every
+ * session of the user.
+ */
+export const REFRESH_REUSE_GRACE_MS = 20_000;
 
 export interface IssuedTokens {
   accessToken: string;
@@ -54,11 +62,16 @@ export class AuthService {
       },
     });
 
-    return this.generateTokens(user.id, user.email);
+    return this.generateTokens(user.id, user.email, user.tokenVersion);
   }
 
-  async validateUser(rawEmail: string, password: string) {
-    // Runs before the ValidationPipe (passport-local), so normalise here too
+  async validateUser(rawEmail: unknown, password: unknown) {
+    // Runs before the ValidationPipe (passport-local), so the body is untrusted:
+    // objects/numbers would make trim()/bcrypt throw and surface as a 500.
+    if (typeof rawEmail !== 'string' || typeof password !== 'string') {
+      return null;
+    }
+
     const email = normalizeEmail(rawEmail);
 
     const user = await this.prisma.user.findFirst({
@@ -82,8 +95,12 @@ export class AuthService {
     return result;
   }
 
-  async login(userId: string, email: string): Promise<IssuedTokens> {
-    return this.generateTokens(userId, email);
+  async login(
+    userId: string,
+    email: string,
+    tokenVersion = 0,
+  ): Promise<IssuedTokens> {
+    return this.generateTokens(userId, email, tokenVersion);
   }
 
   async refreshTokens(refreshToken: string): Promise<IssuedTokens> {
@@ -98,13 +115,20 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    // A rotated or logged-out token is being replayed: either a stale client
-    // or a stolen token. End every live session of this user to be safe.
+    // A rotated or logged-out token is being replayed. Right after rotation
+    // that is a second tab / retried request: just reject it. Later it is
+    // either a stale client or a stolen token, so end every live session.
     if (stored.revoked) {
-      await this.prisma.refreshToken.updateMany({
-        where: { userId: stored.userId, revoked: false },
-        data: { revoked: true },
-      });
+      const withinGrace =
+        stored.revokedAt !== null &&
+        Date.now() - stored.revokedAt.getTime() < REFRESH_REUSE_GRACE_MS;
+
+      if (!withinGrace) {
+        await this.prisma.refreshToken.updateMany({
+          where: { userId: stored.userId, revoked: false },
+          data: { revoked: true, revokedAt: new Date() },
+        });
+      }
       throw new UnauthorizedException('Invalid refresh token');
     }
 
@@ -116,21 +140,25 @@ export class AuthService {
     // token, only one flips `revoked` and may mint a new pair.
     const { count } = await this.prisma.refreshToken.updateMany({
       where: { id: stored.id, revoked: false },
-      data: { revoked: true },
+      data: { revoked: true, revokedAt: new Date() },
     });
 
     if (count === 0) {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    return this.generateTokens(stored.user.id, stored.user.email);
+    return this.generateTokens(
+      stored.user.id,
+      stored.user.email,
+      stored.user.tokenVersion,
+    );
   }
 
   async logout(refreshToken: string) {
     const tokenHash = hashToken(refreshToken);
     await this.prisma.refreshToken.updateMany({
-      where: { token: tokenHash },
-      data: { revoked: true },
+      where: { token: tokenHash, revoked: false },
+      data: { revoked: true, revokedAt: new Date() },
     });
   }
 
@@ -142,23 +170,23 @@ export class AuthService {
   private async generateTokens(
     userId: string,
     email: string,
+    tokenVersion: number,
   ): Promise<IssuedTokens> {
     const { jwt } = getAppConfig();
-    const payload = { sub: userId, email };
 
-    const accessToken = this.jwtService.sign(payload, {
-      secret: jwt.accessSecret,
-      expiresIn: jwt.accessExpiresInSeconds,
-    });
+    // `tv` lets a password change invalidate access tokens immediately.
+    const accessToken = this.jwtService.sign(
+      { sub: userId, email, tv: tokenVersion },
+      {
+        secret: jwt.accessSecret,
+        algorithm: 'HS256',
+        expiresIn: jwt.accessExpiresInSeconds,
+      },
+    );
 
-    // jwtid makes every refresh token unique. Without it, two tokens minted for
-    // the same user within one second are byte-identical and collide on the
-    // unique `token` column (login + immediate refresh -> 500).
-    const refreshToken = this.jwtService.sign(payload, {
-      secret: jwt.refreshSecret,
-      expiresIn: Math.floor(jwt.refreshTtlMs / 1000),
-      jwtid: randomUUID(),
-    });
+    // Refresh tokens are opaque random strings: they are only ever looked up
+    // by hash in the database, so a signed JWT added size but no security.
+    const refreshToken = randomBytes(32).toString('base64url');
 
     await this.prisma.refreshToken.create({
       data: {

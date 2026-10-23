@@ -1,5 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp } from './helpers';
 
 const cookieOf = (res: request.Response) =>
@@ -97,7 +98,7 @@ describe('Auth (e2e)', () => {
       expect(pair(cookieOf(refreshed)!)).not.toEqual(pair(cookieOf(login)!));
     });
 
-    it('replaying a rotated token ends every session', async () => {
+    it('a just-rotated token (second tab) is rejected without ending the session', async () => {
       const original = pair(cookieOf(login)!);
       const rotated = await http()
         .post('/auth/refresh')
@@ -105,9 +106,37 @@ describe('Auth (e2e)', () => {
         .expect(200);
 
       await http().post('/auth/refresh').set('Cookie', original).expect(401);
+      // inside the grace window the newest token keeps working
       await http()
         .post('/auth/refresh')
         .set('Cookie', pair(cookieOf(rotated)!))
+        .expect(200);
+    });
+
+    it('replaying a rotated token after the grace window ends every session', async () => {
+      const original = pair(cookieOf(login)!);
+      const rotated = await http()
+        .post('/auth/refresh')
+        .set('Cookie', original)
+        .expect(200);
+
+      // pretend the rotation happened a minute ago
+      await app.get(PrismaService).refreshToken.updateMany({
+        where: { revoked: true },
+        data: { revokedAt: new Date(Date.now() - 60_000) },
+      });
+
+      await http().post('/auth/refresh').set('Cookie', original).expect(401);
+      await http()
+        .post('/auth/refresh')
+        .set('Cookie', pair(cookieOf(rotated)!))
+        .expect(401);
+    });
+
+    it('answers a non-string login body with 401, not a server error', async () => {
+      await http()
+        .post('/auth/login')
+        .send({ email: { $ne: '' }, password: { $ne: '' } })
         .expect(401);
     });
 
@@ -156,5 +185,38 @@ describe('Auth (e2e)', () => {
       });
       expect(res.body.requestId).toEqual(expect.any(String));
     });
+  });
+
+  it('a password change invalidates access tokens that have not expired yet', async () => {
+    const pwEmail = `pw-${Date.now()}@example.com`;
+    const reg = await http()
+      .post('/auth/register')
+      .send({ email: pwEmail, password, name: 'Pw User' })
+      .expect(201);
+    const token = reg.body.accessToken as string;
+
+    await http()
+      .get('/users/me')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    await http()
+      .patch('/users/me/password')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ currentPassword: password, newPassword: 'password2' })
+      .expect(204);
+
+    await http()
+      .get('/users/me')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(401);
+
+    const again = await http()
+      .post('/auth/login')
+      .send({ email: pwEmail, password: 'password2' })
+      .expect(200);
+    await http()
+      .get('/users/me')
+      .set('Authorization', `Bearer ${again.body.accessToken}`)
+      .expect(200);
   });
 });

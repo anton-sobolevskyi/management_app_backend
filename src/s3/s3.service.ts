@@ -3,6 +3,7 @@ import {
   S3Client,
   PutObjectCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -41,11 +42,19 @@ export class S3Service {
     this.client = new S3Client({
       region: s3.region,
       endpoint: s3.endpoint,
-      forcePathStyle: true,
-      credentials: {
-        accessKeyId: s3.accessKeyId,
-        secretAccessKey: s3.secretAccessKey,
-      },
+      // Path-style is only needed for S3-compatible servers (LocalStack, MinIO);
+      // real AWS S3 uses virtual-hosted style.
+      forcePathStyle: Boolean(s3.endpoint),
+      // Without explicit keys the SDK's default chain applies (IAM role, SSO, ...).
+      // Passing empty strings would shadow it and fail every request.
+      ...(s3.accessKeyId && s3.secretAccessKey
+        ? {
+            credentials: {
+              accessKeyId: s3.accessKeyId,
+              secretAccessKey: s3.secretAccessKey,
+            },
+          }
+        : {}),
     });
     this.bucket = s3.bucket;
   }
@@ -81,6 +90,29 @@ export class S3Service {
         Key: key,
       }),
     );
+  }
+
+  /**
+   * Delete many objects with one request per 1000 keys.
+   * Returns the keys S3 reported as failed (never throws for per-key errors).
+   */
+  async deleteObjects(bucket: string, keys: string[]): Promise<string[]> {
+    const failed: string[] = [];
+
+    for (let i = 0; i < keys.length; i += 1000) {
+      const chunk = keys.slice(i, i + 1000);
+      const result = await this.client.send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: { Objects: chunk.map((Key) => ({ Key })), Quiet: true },
+        }),
+      );
+      for (const error of result.Errors ?? []) {
+        if (error.Key) failed.push(error.Key);
+      }
+    }
+
+    return failed;
   }
 
   async getPresignedUrl(

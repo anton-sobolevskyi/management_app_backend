@@ -16,31 +16,37 @@ describe('AuthorizationService', () => {
 
   describe('assertProjectMember', () => {
     it('404s for a deleted/missing project', async () => {
-      prisma.project.findFirst.mockResolvedValue(null);
+      prisma.projectMember.findFirst.mockResolvedValue(null);
       await expect(
         service.assertProjectMember('u', 'p'),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it('404s (not 403) for non-members, so project existence is not leaked', async () => {
-      prisma.project.findFirst.mockResolvedValue({ id: 'p' });
-      prisma.projectMember.findUnique.mockResolvedValue(null);
+      prisma.projectMember.findFirst.mockResolvedValue(null);
       await expect(
         service.assertProjectMember('u', 'p'),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it('403s when the role is not allowed', async () => {
-      prisma.project.findFirst.mockResolvedValue({ id: 'p' });
-      prisma.projectMember.findUnique.mockResolvedValue({ role: Role.MEMBER });
+      prisma.projectMember.findFirst.mockResolvedValue({ role: Role.MEMBER });
       await expect(
         service.assertProjectMember('u', 'p', [Role.OWNER, Role.ADMIN]),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
+    it('checks project liveness and membership in a single query', async () => {
+      prisma.projectMember.findFirst.mockResolvedValue({ role: Role.MEMBER });
+      await service.assertProjectMember('u', 'p');
+      expect(prisma.projectMember.findFirst).toHaveBeenCalledTimes(1);
+      expect(prisma.projectMember.findFirst).toHaveBeenCalledWith({
+        where: { userId: 'u', projectId: 'p', project: { deletedAt: null } },
+      });
+    });
+
     it('returns the membership when allowed', async () => {
-      prisma.project.findFirst.mockResolvedValue({ id: 'p' });
-      prisma.projectMember.findUnique.mockResolvedValue({ role: Role.ADMIN });
+      prisma.projectMember.findFirst.mockResolvedValue({ role: Role.ADMIN });
       await expect(
         service.assertProjectMember('u', 'p', [Role.OWNER, Role.ADMIN]),
       ).resolves.toEqual({ role: Role.ADMIN });
@@ -55,17 +61,91 @@ describe('AuthorizationService', () => {
       );
     });
 
-    it('delegates to project membership of the task project', async () => {
-      prisma.task.findFirst.mockResolvedValue({ id: 't', projectId: 'p' });
-      prisma.project.findFirst.mockResolvedValue({ id: 'p' });
-      prisma.projectMember.findUnique.mockResolvedValue({ role: Role.MEMBER });
+    it('404s (same as a missing task) when the user is not a project member', async () => {
+      // the membership filter is part of the query, so non-members get null
+      prisma.task.findFirst.mockResolvedValue(null);
+      await expect(service.assertTaskAccess('u', 't')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(prisma.task.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            project: { deletedAt: null, members: { some: { userId: 'u' } } },
+          }),
+        }),
+      );
+    });
+
+    it('resolves task, project and role in one query', async () => {
+      prisma.task.findFirst.mockResolvedValue({
+        id: 't',
+        projectId: 'p',
+        project: { members: [{ role: Role.MEMBER }] },
+      });
       await expect(service.assertTaskAccess('u', 't')).resolves.toEqual({
         id: 't',
         projectId: 'p',
       });
-      expect(prisma.projectMember.findUnique).toHaveBeenCalledWith({
-        where: { userId_projectId: { userId: 'u', projectId: 'p' } },
+      expect(prisma.task.findFirst).toHaveBeenCalledTimes(1);
+      expect(prisma.projectMember.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('403s when the role is not allowed', async () => {
+      prisma.task.findFirst.mockResolvedValue({
+        id: 't',
+        projectId: 'p',
+        project: { members: [{ role: Role.MEMBER }] },
       });
+      await expect(
+        service.assertTaskAccess('u', 't', [Role.OWNER]),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+  });
+
+  describe('assertCommentAccess / assertCommentAuthorOrAdmin', () => {
+    const found = (role: Role, authorId = 'author') => ({
+      id: 'c',
+      authorId,
+      task: { projectId: 'p', project: { members: [{ role }] } },
+    });
+
+    it('404s when the comment is missing or the user is not a member', async () => {
+      prisma.comment.findFirst.mockResolvedValue(null);
+      await expect(
+        service.assertCommentAccess('u', 'c'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('returns the caller role so no second membership query is needed', async () => {
+      prisma.comment.findFirst.mockResolvedValue(found(Role.ADMIN));
+      const comment = await service.assertCommentAccess('u', 'c');
+      expect(comment).toEqual({
+        id: 'c',
+        authorId: 'author',
+        task: { projectId: 'p' },
+        role: Role.ADMIN,
+      });
+
+      await expect(
+        service.assertCommentAuthorOrAdmin('u', comment),
+      ).resolves.toBeUndefined();
+      expect(prisma.projectMember.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('rejects a plain member who is not the author', async () => {
+      prisma.comment.findFirst.mockResolvedValue(found(Role.MEMBER));
+      const comment = await service.assertCommentAccess('u', 'c');
+      await expect(
+        service.assertCommentAuthorOrAdmin('u', comment),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('lets the author edit without any role lookup', async () => {
+      prisma.comment.findFirst.mockResolvedValue(found(Role.MEMBER, 'u'));
+      const comment = await service.assertCommentAccess('u', 'c');
+      await expect(
+        service.assertCommentAuthorOrAdmin('u', comment),
+      ).resolves.toBeUndefined();
     });
   });
 
@@ -96,8 +176,7 @@ describe('AuthorizationService', () => {
 
     it('requires membership of the task project and reports the projectId', async () => {
       prisma.attachment.findUnique.mockResolvedValue(projectAttachment);
-      prisma.project.findFirst.mockResolvedValue({ id: 'p' });
-      prisma.projectMember.findUnique.mockResolvedValue({ role: Role.MEMBER });
+      prisma.projectMember.findFirst.mockResolvedValue({ role: Role.MEMBER });
 
       const result = await service.assertAttachmentAccess('u', 'a');
       expect(result.projectId).toBe('p');
@@ -111,8 +190,7 @@ describe('AuthorizationService', () => {
         task: null,
         comment: { task: { projectId: 'p2' } },
       });
-      prisma.project.findFirst.mockResolvedValue({ id: 'p2' });
-      prisma.projectMember.findUnique.mockResolvedValue({ role: Role.MEMBER });
+      prisma.projectMember.findFirst.mockResolvedValue({ role: Role.MEMBER });
 
       const result = await service.assertAttachmentAccess('u', 'a');
       expect(result.projectId).toBe('p2');

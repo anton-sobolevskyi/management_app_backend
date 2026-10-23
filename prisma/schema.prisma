@@ -24,6 +24,8 @@ model User {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   deletedAt    DateTime?
+  // Bumped on password change; access tokens carry it and are rejected on mismatch.
+  tokenVersion Int       @default(0)
 
   avatar             Attachment?     @relation("UserAvatar", fields: [avatarId], references: [id], onDelete: SetNull)
   projectMemberships ProjectMember[]
@@ -48,6 +50,8 @@ model RefreshToken {
   expiresAt DateTime
   createdAt DateTime @default(now())
   revoked   Boolean  @default(false)
+  // When the token was revoked (rotation / logout). Used for the reuse grace window.
+  revokedAt DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -116,8 +120,9 @@ model Task {
 
   @@index([projectId, deletedAt, createdAt(sort: Desc)])
   @@index([assignedToId])
-  @@index([status])
-  @@index([deletedAt])
+  @@index([projectId, status])
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "tasks_title_trgm_idx")
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "tasks_description_trgm_idx")
   @@map("tasks")
 }
 

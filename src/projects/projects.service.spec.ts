@@ -79,9 +79,18 @@ describe('ProjectsService', () => {
   });
 
   describe('findOne', () => {
-    it('should return a project', async () => {
-      mockPrisma.project.findFirst.mockResolvedValue(mockProject);
-      expect(await service.findOne('project-1')).toEqual(mockProject);
+    it('returns the project with a capped member list and memberCount', async () => {
+      mockPrisma.project.findFirst.mockResolvedValue({
+        ...mockProject,
+        _count: { members: 250 },
+      });
+
+      const result = await service.findOne('project-1');
+
+      expect(result).toEqual({ ...mockProject, memberCount: 250 });
+      expect(result).not.toHaveProperty('_count');
+      const args = mockPrisma.project.findFirst.mock.calls[0][0];
+      expect(args.include.members.take).toBe(100);
     });
 
     it('should throw NotFoundException if project not found', async () => {
@@ -95,8 +104,6 @@ describe('ProjectsService', () => {
   describe('softDelete', () => {
     beforeEach(() => {
       mockPrisma.project.findFirst.mockResolvedValue(mockProject);
-      mockPrisma.task.findMany.mockResolvedValue([{ id: 't1' }]);
-      mockPrisma.comment.findMany.mockResolvedValue([{ id: 'c1' }]);
       mockPrisma.comment.updateMany.mockResolvedValue({ count: 1 });
       mockPrisma.task.updateMany.mockResolvedValue({ count: 1 });
       mockPrisma.project.update.mockResolvedValue(mockProject);
@@ -117,15 +124,36 @@ describe('ProjectsService', () => {
 
       await service.softDelete('project-1');
 
+      // relation filters, not loaded id lists
       expect(mockAttachments.detachFor).toHaveBeenCalledWith(mockPrisma, {
-        taskIds: ['t1'],
-        commentIds: ['c1'],
+        projectId: 'project-1',
       });
-      expect(mockPrisma.comment.updateMany).toHaveBeenCalled();
+      expect(mockPrisma.comment.updateMany).toHaveBeenCalledWith({
+        where: { deletedAt: null, task: { projectId: 'project-1' } },
+        data: { deletedAt: expect.any(Date) },
+      });
       expect(mockPrisma.task.updateMany).toHaveBeenCalled();
+      expect(mockPrisma.task.findMany).not.toHaveBeenCalled();
       expect(mockPrisma.project.update).toHaveBeenCalled();
       expect(mockAttachments.purgeObjects).toHaveBeenCalledWith(stored);
       expect(order).toEqual(['commit', 'purge']);
+    });
+
+    it('uses a light existence check instead of loading all members', async () => {
+      mockAttachments.detachFor.mockResolvedValue([]);
+      await service.softDelete('project-1');
+      expect(mockPrisma.project.findFirst).toHaveBeenCalledWith({
+        where: { id: 'project-1', deletedAt: null },
+        select: { id: true },
+      });
+    });
+
+    it('404s for a missing project without opening a transaction', async () => {
+      mockPrisma.project.findFirst.mockResolvedValue(null);
+      await expect(service.softDelete('nope')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
     });
 
     it('keeps files and leaves nothing half-deleted when a step fails', async () => {

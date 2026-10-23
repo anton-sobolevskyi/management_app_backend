@@ -2,6 +2,10 @@ import type { MulterOptions } from '@nestjs/platform-express/multer/interfaces/m
 
 export const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
+/** Soft caps so one task/comment can't accumulate unbounded storage. */
+export const MAX_ATTACHMENTS_PER_TASK = 50;
+export const MAX_ATTACHMENTS_PER_COMMENT = 10;
+
 export const IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 export const ALLOWED_MIME_TYPES = [

@@ -42,6 +42,8 @@ function toDueDate(value: string | null | undefined): Date | null | undefined {
   return typeof value === 'string' ? parseDate(value, 'dueDate') : value;
 }
 
+const TASK_DETAIL_COMMENT_LIMIT = 100;
+
 @Injectable()
 export class TasksService {
   constructor(
@@ -143,9 +145,11 @@ export class TasksService {
       where: { id, deletedAt: null },
       include: {
         // soft-deleted comments must not leak through the task detail
+        // capped: GET /tasks/:id/comments pages through the rest
         comments: {
           where: { deletedAt: null },
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          take: TASK_DETAIL_COMMENT_LIMIT,
         },
         attachments: { select: ATTACHMENT_PUBLIC_SELECT },
       },

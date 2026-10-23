@@ -15,6 +15,9 @@ const startsWith = (buf: Buffer, bytes: number[], offset = 0): boolean =>
   buf.length >= offset + bytes.length &&
   bytes.every((b, i) => buf[offset + i] === b);
 
+/** Directory entry that every Word binary document has (UTF-16LE stream name). */
+const WORD_STREAM_NAME = Buffer.from('WordDocument', 'utf16le');
+
 const ascii = (text: string): number[] => [...text].map((c) => c.charCodeAt(0));
 
 export function looksLikeText(buf: Buffer): boolean {
@@ -40,8 +43,12 @@ export function detectBinaryMime(buf: Buffer): string | null {
   if (buf.subarray(0, 1024).includes(Buffer.from('%PDF-'))) {
     return 'application/pdf';
   }
-  // OLE2 compound file: legacy .doc (also .xls/.ppt, which share the container)
-  if (startsWith(buf, [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])) {
+  // OLE2 compound file. .xls/.ppt share the container, so also require the
+  // "WordDocument" stream that only Word documents have.
+  if (
+    startsWith(buf, [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]) &&
+    buf.includes(WORD_STREAM_NAME)
+  ) {
     return 'application/msword';
   }
   return null;

@@ -53,7 +53,11 @@ export class AuthController {
   @ApiOperation({ summary: 'Login with email and password' })
   @ApiResponse({ status: 200, type: AuthResponseDto })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
-  @Throttle({ limit: 10, windowMs: 60_000 })
+  @Throttle({
+    limit: 10,
+    windowMs: 60_000,
+    perEmail: { limit: 20, windowMs: 15 * 60_000 },
+  })
   @UseGuards(LocalAuthGuard)
   @HttpCode(200)
   @Post('login')
@@ -65,6 +69,7 @@ export class AuthController {
     const { refreshToken, ...body } = await this.authService.login(
       user.userId,
       user.email,
+      user.tokenVersion,
     );
     this.setRefreshCookie(res, refreshToken);
     return body;

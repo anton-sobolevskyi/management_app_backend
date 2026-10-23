@@ -17,7 +17,7 @@ export class ProjectResponseDto {
   @ApiProperty({
     required: false,
     description:
-      'Total members (list endpoint only; `members` is capped at 20 there)',
+      'Total members. `members` is capped (20 in the list, 100 in the detail view); use GET /projects/:id/members to page through all of them',
   })
   memberCount?: number;
 

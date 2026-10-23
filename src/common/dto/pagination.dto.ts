@@ -2,12 +2,22 @@ import { ApiPropertyOptional, ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, Max, Min } from 'class-validator';
 
+/** Deep offsets force the database to skip that many rows: cap them. */
+export const MAX_PAGE = 10_000;
+
 export class PaginationQueryDto {
-  @ApiPropertyOptional({ default: 1, minimum: 1 })
+  @ApiPropertyOptional({
+    default: 1,
+    minimum: 1,
+    maximum: MAX_PAGE,
+    description:
+      'Offset pagination gets slower the deeper you go, so the page number is capped.',
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(MAX_PAGE)
   page?: number = 1;
 
   @ApiPropertyOptional({ default: 20, minimum: 1, maximum: 100 })
@@ -60,7 +70,8 @@ export function paginationArgs(query: PaginationQueryDto): {
   limit: number;
   skip: number;
 } {
-  const page = query.page && query.page > 0 ? query.page : 1;
+  const page =
+    query.page && query.page > 0 ? Math.min(query.page, MAX_PAGE) : 1;
   const limit =
     query.limit && query.limit > 0 ? Math.min(query.limit, 100) : 20;
   return { page, limit, skip: (page - 1) * limit };

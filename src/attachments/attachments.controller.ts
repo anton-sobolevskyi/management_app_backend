@@ -20,6 +20,7 @@ import {
 } from '../common/throttler/simple-throttler.guard';
 import { ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { UPLOAD_OPTIONS } from './attachments.constants';
+import { UploadConcurrencyInterceptor } from './upload-concurrency.interceptor';
 
 const UPLOAD_LIMIT = { limit: 30, windowMs: 60_000 };
 
@@ -34,7 +35,10 @@ export class AttachmentsController {
   @Throttle(UPLOAD_LIMIT)
   @UseGuards(ProjectMemberGuard)
   @ProjectScope('task', 'taskId')
-  @UseInterceptors(FileInterceptor('file', UPLOAD_OPTIONS))
+  @UseInterceptors(
+    UploadConcurrencyInterceptor,
+    FileInterceptor('file', UPLOAD_OPTIONS),
+  )
   uploadForTask(
     @Param('taskId') taskId: string,
     @UploadedFile() file: Express.Multer.File,
@@ -50,7 +54,10 @@ export class AttachmentsController {
   @Throttle(UPLOAD_LIMIT)
   @UseGuards(ProjectMemberGuard)
   @ProjectScope('comment', 'commentId')
-  @UseInterceptors(FileInterceptor('file', UPLOAD_OPTIONS))
+  @UseInterceptors(
+    UploadConcurrencyInterceptor,
+    FileInterceptor('file', UPLOAD_OPTIONS),
+  )
   uploadForComment(
     @Param('commentId') commentId: string,
     @UploadedFile() file: Express.Multer.File,
@@ -62,7 +69,10 @@ export class AttachmentsController {
   @ApiOperation({ summary: 'Upload an avatar for the authenticated user' })
   @Post('users/avatar')
   @Throttle(UPLOAD_LIMIT)
-  @UseInterceptors(FileInterceptor('file', UPLOAD_OPTIONS))
+  @UseInterceptors(
+    UploadConcurrencyInterceptor,
+    FileInterceptor('file', UPLOAD_OPTIONS),
+  )
   uploadAvatar(
     @UploadedFile() file: Express.Multer.File,
     @CurrentUser('userId') userId: string,

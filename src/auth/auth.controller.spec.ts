@@ -52,7 +52,7 @@ describe('AuthController', () => {
 
   describe('login', () => {
     it('should login and set cookie', async () => {
-      const user = { userId: '1', email: 'test@test.com' };
+      const user = { userId: '1', email: 'test@test.com', tokenVersion: 2 };
       jest.spyOn(authService, 'login').mockResolvedValue({
         accessToken: 'at',
         refreshToken: 'rt',
@@ -64,7 +64,7 @@ describe('AuthController', () => {
         mockResponse,
       );
       expect(result).toEqual({ accessToken: 'at', expiresIn: 900 });
-      expect(authService.login).toHaveBeenCalledWith('1', 'test@test.com');
+      expect(authService.login).toHaveBeenCalledWith('1', 'test@test.com', 2);
       expect(mockResponse.cookie).toHaveBeenCalled();
     });
   });

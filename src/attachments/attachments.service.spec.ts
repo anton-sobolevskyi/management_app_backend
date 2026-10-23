@@ -4,7 +4,11 @@ import { AttachmentsService } from './attachments.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { S3Service } from '../s3/s3.service';
 import { AuthorizationService } from '../common/authorization/authorization.service';
-import { ATTACHMENT_PUBLIC_SELECT } from './attachments.constants';
+import {
+  ATTACHMENT_PUBLIC_SELECT,
+  MAX_ATTACHMENTS_PER_COMMENT,
+  MAX_ATTACHMENTS_PER_TASK,
+} from './attachments.constants';
 
 const JPEG = Buffer.concat([
   Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
@@ -30,6 +34,7 @@ describe('AttachmentsService', () => {
     user: { findUnique: jest.fn(), update: jest.fn() },
     attachment: {
       create: jest.fn(),
+      count: jest.fn(),
       findUnique: jest.fn(),
       findMany: jest.fn(),
       delete: jest.fn(),
@@ -41,6 +46,7 @@ describe('AttachmentsService', () => {
     uploadFile: jest.fn(),
     getPresignedUrl: jest.fn(),
     deleteObject: jest.fn(),
+    deleteObjects: jest.fn(),
   };
   const authz = {
     assertCommentAuthorOrAdmin: jest.fn(),
@@ -62,10 +68,21 @@ describe('AttachmentsService', () => {
     jest.clearAllMocks();
     prisma.$transaction.mockImplementation((cb: any) => cb(prisma));
     s3.uploadFile.mockResolvedValue({ key: 'k', bucket: 'b' });
+    prisma.attachment.count.mockResolvedValue(0);
+    s3.deleteObjects.mockResolvedValue([]);
   });
 
   describe('uploadForTask', () => {
     beforeEach(() => prisma.task.findFirst.mockResolvedValue({ id: 'task1' }));
+
+    it('refuses once the task is at its attachment quota', async () => {
+      prisma.attachment.count.mockResolvedValue(MAX_ATTACHMENTS_PER_TASK);
+
+      await expect(
+        service.uploadForTask('task1', file(), 'u1'),
+      ).rejects.toThrow(/at most 50 attachments/);
+      expect(s3.uploadFile).not.toHaveBeenCalled();
+    });
 
     it('uploads, records, and returns only public columns', async () => {
       prisma.attachment.create.mockResolvedValue({ id: 'att1' });
@@ -404,18 +421,69 @@ describe('AttachmentsService', () => {
       expect(prisma.attachment.findMany).not.toHaveBeenCalled();
     });
 
-    it('purgeObjects is best-effort', async () => {
-      s3.deleteObject
+    it('purgeObjects deletes a single object with a plain DeleteObject', async () => {
+      s3.deleteObject.mockResolvedValue(undefined);
+      await service.purgeObjects([{ s3Bucket: 'b', s3Key: 'k1' }]);
+      expect(s3.deleteObject).toHaveBeenCalledWith('b', 'k1');
+      expect(s3.deleteObjects).not.toHaveBeenCalled();
+    });
+
+    it('purgeObjects batches many objects per bucket into DeleteObjects', async () => {
+      await service.purgeObjects([
+        { s3Bucket: 'b1', s3Key: 'k1' },
+        { s3Bucket: 'b1', s3Key: 'k2' },
+        { s3Bucket: 'b2', s3Key: 'k3' },
+      ]);
+      expect(s3.deleteObjects).toHaveBeenCalledTimes(2);
+      expect(s3.deleteObjects).toHaveBeenCalledWith('b1', ['k1', 'k2']);
+      expect(s3.deleteObjects).toHaveBeenCalledWith('b2', ['k3']);
+      expect(s3.deleteObject).not.toHaveBeenCalled();
+    });
+
+    it('purgeObjects is best-effort (batch errors and per-key failures are only logged)', async () => {
+      s3.deleteObjects
         .mockRejectedValueOnce(new Error('x'))
-        .mockResolvedValueOnce(undefined);
+        .mockResolvedValueOnce(['k3']);
 
       await expect(
         service.purgeObjects([
-          { s3Bucket: 'b', s3Key: 'k1' },
-          { s3Bucket: 'b', s3Key: 'k2' },
+          { s3Bucket: 'b1', s3Key: 'k1' },
+          { s3Bucket: 'b1', s3Key: 'k2' },
+          { s3Bucket: 'b2', s3Key: 'k3' },
+          { s3Bucket: 'b2', s3Key: 'k4' },
         ]),
       ).resolves.toBeUndefined();
-      expect(s3.deleteObject).toHaveBeenCalledTimes(2);
+      expect(s3.deleteObjects).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('detachFor', () => {
+    it('scopes a whole project with relation filters (no id lists)', async () => {
+      prisma.attachment.findMany.mockResolvedValue([
+        { id: 'a1', s3Bucket: 'b', s3Key: 'k' },
+      ]);
+
+      const stored = await service.detachFor(prisma, { projectId: 'p1' });
+
+      expect(prisma.attachment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            OR: [
+              { task: { projectId: 'p1' } },
+              { comment: { task: { projectId: 'p1' } } },
+            ],
+          },
+        }),
+      );
+      expect(prisma.attachment.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ['a1'] } },
+      });
+      expect(stored).toEqual([{ id: 'a1', s3Bucket: 'b', s3Key: 'k' }]);
+    });
+
+    it('does nothing for an empty scope', async () => {
+      await expect(service.detachFor(prisma, {})).resolves.toEqual([]);
+      expect(prisma.attachment.findMany).not.toHaveBeenCalled();
     });
   });
 

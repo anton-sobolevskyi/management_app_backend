@@ -8,7 +8,10 @@ import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProjectsService } from '../projects/projects.service';
-import { AttachmentsService } from '../attachments/attachments.service';
+import {
+  AttachmentsService,
+  StoredObject,
+} from '../attachments/attachments.service';
 import { Role } from '../generated/prisma/enums';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -71,9 +74,9 @@ export class UsersService {
   }
 
   /**
-   * Change the password and end every session: all refresh tokens are revoked,
-   * so other devices (and anyone holding a stolen token) must log in again.
-   * Access tokens already issued stay valid until they expire.
+   * Change the password and end every session: all refresh tokens are revoked
+   * and the token version is bumped, so access tokens already issued stop
+   * working immediately too (JwtStrategy compares the version).
    */
   async changePassword(id: string, dto: ChangePasswordDto): Promise<void> {
     const user = await this.prisma.user.findFirst({
@@ -106,10 +109,13 @@ export class UsersService {
     );
 
     await this.prisma.$transaction([
-      this.prisma.user.update({ where: { id }, data: { passwordHash } }),
+      this.prisma.user.update({
+        where: { id },
+        data: { passwordHash, tokenVersion: { increment: 1 } },
+      }),
       this.prisma.refreshToken.updateMany({
         where: { userId: id, revoked: false },
-        data: { revoked: true },
+        data: { revoked: true, revokedAt: new Date() },
       }),
     ]);
   }
@@ -127,77 +133,107 @@ export class UsersService {
    * - All refresh tokens are revoked.
    */
   async softDelete(id: string): Promise<UserResponseDto> {
-    const user = await this.prisma.user.findFirst({
-      where: { id, deletedAt: null },
-    });
+    // One transaction: the ownership checks, the deletion of solo projects and
+    // the account wipe succeed or fail together, and the project rows stay
+    // locked so nobody can change ownership between the check and the delete.
+    const { deleted, avatarId, stored } = await this.prisma.$transaction(
+      async (tx) => {
+        const user = await tx.user.findFirst({
+          where: { id, deletedAt: null },
+        });
 
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
+        if (!user) {
+          throw new NotFoundException('User not found');
+        }
 
-    const owned = await this.prisma.projectMember.findMany({
-      where: { userId: id, role: Role.OWNER, project: { deletedAt: null } },
-      select: { projectId: true, project: { select: { name: true } } },
-    });
+        const owned = await tx.projectMember.findMany({
+          where: { userId: id, role: Role.OWNER, project: { deletedAt: null } },
+          select: { projectId: true, project: { select: { name: true } } },
+        });
+        const ownedIds = owned.map((o) => o.projectId);
 
-    const blocking: string[] = [];
-    const soloProjectIds: string[] = [];
+        const blocking: string[] = [];
+        const soloProjectIds: string[] = [];
 
-    for (const { projectId, project } of owned) {
-      const [otherOwners, otherMembers] = await Promise.all([
-        this.prisma.projectMember.count({
-          where: { projectId, role: Role.OWNER, userId: { not: id } },
-        }),
-        this.prisma.projectMember.count({
-          where: { projectId, userId: { not: id } },
-        }),
-      ]);
+        if (ownedIds.length > 0) {
+          // Same lock transferOwnership / leave take on the project row
+          await tx.$queryRaw`SELECT "id" FROM "projects" WHERE "id" = ANY(${ownedIds}::text[]) FOR UPDATE`;
 
-      if (otherOwners > 0) continue; // someone else keeps it running
+          // One query for all owned projects instead of two counts each
+          const others = await tx.projectMember.groupBy({
+            by: ['projectId', 'role'],
+            where: { projectId: { in: ownedIds }, userId: { not: id } },
+            _count: { _all: true },
+          });
 
-      if (otherMembers > 0) {
-        blocking.push(project.name);
-      } else {
-        soloProjectIds.push(projectId);
-      }
-    }
+          const members = new Map<string, number>();
+          const owners = new Map<string, number>();
+          for (const row of others) {
+            members.set(
+              row.projectId,
+              (members.get(row.projectId) ?? 0) + row._count._all,
+            );
+            if (row.role === Role.OWNER) {
+              owners.set(row.projectId, row._count._all);
+            }
+          }
 
-    if (blocking.length > 0) {
-      throw new ConflictException(
-        `Transfer ownership or remove the other members before deleting your account. Projects: ${blocking.join(', ')}`,
-      );
-    }
+          for (const { projectId, project } of owned) {
+            if ((owners.get(projectId) ?? 0) > 0) continue; // someone else keeps it running
 
-    for (const projectId of soloProjectIds) {
-      await this.projectsService.softDelete(projectId);
-    }
+            if ((members.get(projectId) ?? 0) > 0) {
+              blocking.push(project.name);
+            } else {
+              soloProjectIds.push(projectId);
+            }
+          }
+        }
 
-    const avatarId = user.avatarId;
+        if (blocking.length > 0) {
+          throw new ConflictException(
+            `Transfer ownership or remove the other members before deleting your account. Projects: ${blocking.join(', ')}`,
+          );
+        }
 
-    const deleted = await this.prisma.$transaction(async (tx) => {
-      await tx.task.updateMany({
-        where: { assignedToId: id },
-        data: { assignedToId: null },
-      });
-      await tx.projectMember.deleteMany({ where: { userId: id } });
-      await tx.refreshToken.updateMany({
-        where: { userId: id, revoked: false },
-        data: { revoked: true },
-      });
+        const stored: StoredObject[] = [];
+        for (const projectId of soloProjectIds) {
+          const result = await this.projectsService.softDeleteInTx(
+            tx,
+            projectId,
+          );
+          stored.push(...result.stored);
+        }
 
-      return tx.user.update({
-        where: { id },
-        data: {
-          deletedAt: new Date(),
-          email: `deleted+${id}+${Date.now()}@deleted.local`,
-          name: 'Deleted user',
-          // Not a valid bcrypt hash: no password can ever match it
-          passwordHash: `!${randomUUID()}`,
-          avatarId: null,
-        },
-        select: userSelect,
-      });
-    });
+        await tx.task.updateMany({
+          where: { assignedToId: id },
+          data: { assignedToId: null },
+        });
+        await tx.projectMember.deleteMany({ where: { userId: id } });
+        await tx.refreshToken.updateMany({
+          where: { userId: id, revoked: false },
+          data: { revoked: true, revokedAt: new Date() },
+        });
+
+        const deleted = await tx.user.update({
+          where: { id },
+          data: {
+            deletedAt: new Date(),
+            email: `deleted+${id}+${Date.now()}@deleted.local`,
+            name: 'Deleted user',
+            // Not a valid bcrypt hash: no password can ever match it
+            passwordHash: `!${randomUUID()}`,
+            avatarId: null,
+          },
+          select: userSelect,
+        });
+
+        return { deleted, avatarId: user.avatarId, stored };
+      },
+      { timeout: 20_000 },
+    );
+
+    // Files go only after the commit, so a rollback never orphans rows
+    await this.attachmentsService.purgeObjects(stored);
 
     if (avatarId) {
       await this.attachmentsService.remove(avatarId).catch(() => undefined);

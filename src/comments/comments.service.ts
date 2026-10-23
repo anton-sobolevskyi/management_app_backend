@@ -80,6 +80,7 @@ export class CommentsService {
     dto: UpdateCommentDto,
     userId: string,
   ): Promise<CommentResponseDto> {
+    // One query: access check and caller role; no extra membership lookup
     const comment = await this.authz.assertCommentAccess(userId, id);
     await this.authz.assertCommentAuthorOrAdmin(userId, comment);
 
@@ -90,6 +91,7 @@ export class CommentsService {
   }
 
   async softDelete(id: string, userId: string): Promise<CommentResponseDto> {
+    // One query: access check and caller role; no extra membership lookup
     const comment = await this.authz.assertCommentAccess(userId, id);
     await this.authz.assertCommentAuthorOrAdmin(userId, comment);
 

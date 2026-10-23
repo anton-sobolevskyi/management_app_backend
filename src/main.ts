@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { Logger } from 'nestjs-pino';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -10,15 +11,20 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { getAllowedOrigins } from './config/cors.config';
 import { getTrustProxy } from './config/trust-proxy.config';
 import { getAppConfig } from './config/app.config';
+import { operationIdFactory } from './config/swagger.config';
 
 async function bootstrap() {
   validateEnv();
 
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+  });
+  app.useLogger(app.get(Logger));
 
   // Makes req.ip honour only the configured number of proxy hops, so a client
   // cannot spoof its address (and dodge rate limits) via X-Forwarded-For.
   app.set('trust proxy', getTrustProxy());
+  app.disable('x-powered-by');
 
   app.use(cookieParser());
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
@@ -47,6 +53,9 @@ async function bootstrap() {
   app.enableCors({
     origin: getAllowedOrigins(),
     credentials: true,
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    // Let browsers cache the preflight instead of sending one per request
+    maxAge: 86_400,
   });
 
   if (getAppConfig().swaggerEnabled) {
@@ -65,9 +74,7 @@ async function bootstrap() {
       .build();
 
     const document = SwaggerModule.createDocument(app, config, {
-      operationIdFactory: (controllerKey, methodKey) =>
-        controllerKey.toLocaleLowerCase().replace('controller', '') +
-        `-${methodKey.toLocaleLowerCase()}`,
+      operationIdFactory,
     });
     SwaggerModule.setup('api-docs', app, document);
   }

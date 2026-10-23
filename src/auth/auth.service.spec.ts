@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { AuthService } from './auth.service';
+import { AuthService, REFRESH_REUSE_GRACE_MS } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
@@ -83,9 +83,11 @@ describe('AuthService', () => {
     it('should create user and return tokens', async () => {
       jest.spyOn(prisma.user, 'findFirst').mockResolvedValue(null);
       (bcrypt.hash as jest.Mock).mockResolvedValue('hashedPassword' as any);
-      jest
-        .spyOn(prisma.user, 'create')
-        .mockResolvedValue({ id: '1', email: 'test@test.com' } as any);
+      jest.spyOn(prisma.user, 'create').mockResolvedValue({
+        id: '1',
+        email: 'test@test.com',
+        tokenVersion: 0,
+      } as any);
       jest.spyOn(jwtService, 'sign').mockReturnValue('token');
       jest.spyOn(prisma.refreshToken, 'create').mockResolvedValue({} as any);
 
@@ -96,13 +98,20 @@ describe('AuthService', () => {
       });
       expect(result).toEqual({
         accessToken: 'token',
-        refreshToken: 'token',
+        refreshToken: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
         expiresIn: 900,
       });
+      // only the hash of the opaque refresh token is stored
       expect(prisma.refreshToken.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ token: hashToken('token') }),
+          data: expect.objectContaining({
+            token: hashToken(result.refreshToken),
+          }),
         }),
+      );
+      expect(jwtService.sign).toHaveBeenCalledWith(
+        { sub: '1', email: 'test@test.com', tv: 0 },
+        expect.objectContaining({ algorithm: 'HS256' }),
       );
     });
   });
@@ -140,6 +149,17 @@ describe('AuthService', () => {
       expect(result).toEqual({ id: '1', email: 'test@test.com' });
     });
 
+    it.each([
+      ['object email', { $ne: '' }, 'password'],
+      ['numeric email', 123, 'password'],
+      ['object password', 'a@b.c', { x: 1 }],
+      ['missing password', 'a@b.c', undefined],
+    ])('returns null (not a 500) for a %s', async (_l, email, password) => {
+      const result = await service.validateUser(email, password);
+      expect(result).toBeNull();
+      expect(prisma.user.findFirst).not.toHaveBeenCalled();
+    });
+
     it('should return null if user not found', async () => {
       jest.spyOn(prisma.user, 'findFirst').mockResolvedValue(null);
       const result = await service.validateUser('test@test.com', 'password');
@@ -154,7 +174,8 @@ describe('AuthService', () => {
       userId: 'u1',
       revoked: false,
       expiresAt: future,
-      user: { id: 'u1', email: 'a@b.c', deletedAt: null },
+      user: { id: 'u1', email: 'a@b.c', deletedAt: null, tokenVersion: 3 },
+      revokedAt: null,
       ...overrides,
     });
 
@@ -179,13 +200,18 @@ describe('AuthService', () => {
 
       expect(result).toEqual({
         accessToken: 'new',
-        refreshToken: 'new',
+        refreshToken: expect.any(String),
         expiresIn: 900,
       });
       expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
         where: { id: 'rt-1', revoked: false },
-        data: { revoked: true },
+        data: { revoked: true, revokedAt: expect.any(Date) },
       });
+      // the new access token carries the user's current token version
+      expect(jwtService.sign).toHaveBeenCalledWith(
+        { sub: 'u1', email: 'a@b.c', tv: 3 },
+        expect.any(Object),
+      );
     });
 
     it('should reject the loser of a concurrent refresh without minting tokens', async () => {
@@ -202,10 +228,28 @@ describe('AuthService', () => {
       expect(prisma.refreshToken.create).not.toHaveBeenCalled();
     });
 
-    it('should revoke all sessions of the user when a revoked token is replayed', async () => {
-      jest
-        .spyOn(prisma.refreshToken, 'findUnique')
-        .mockResolvedValue(stored({ revoked: true }) as any);
+    it('should only reject (not revoke everything) a token rotated moments ago', async () => {
+      jest.spyOn(prisma.refreshToken, 'findUnique').mockResolvedValue(
+        stored({
+          revoked: true,
+          revokedAt: new Date(Date.now() - 2_000),
+        }) as any,
+      );
+
+      await expect(service.refreshTokens('just-rotated')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(prisma.refreshToken.updateMany).not.toHaveBeenCalled();
+      expect(prisma.refreshToken.create).not.toHaveBeenCalled();
+    });
+
+    it('should revoke all sessions of the user when an old revoked token is replayed', async () => {
+      jest.spyOn(prisma.refreshToken, 'findUnique').mockResolvedValue(
+        stored({
+          revoked: true,
+          revokedAt: new Date(Date.now() - REFRESH_REUSE_GRACE_MS - 1_000),
+        }) as any,
+      );
       jest
         .spyOn(prisma.refreshToken, 'updateMany')
         .mockResolvedValue({ count: 2 });
@@ -215,9 +259,23 @@ describe('AuthService', () => {
       );
       expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
         where: { userId: 'u1', revoked: false },
-        data: { revoked: true },
+        data: { revoked: true, revokedAt: expect.any(Date) },
       });
       expect(prisma.refreshToken.create).not.toHaveBeenCalled();
+    });
+
+    it('should treat a revoked token without a timestamp as outside the grace window', async () => {
+      jest
+        .spyOn(prisma.refreshToken, 'findUnique')
+        .mockResolvedValue(stored({ revoked: true, revokedAt: null }) as any);
+      jest
+        .spyOn(prisma.refreshToken, 'updateMany')
+        .mockResolvedValue({ count: 1 });
+
+      await expect(service.refreshTokens('legacy')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalled();
     });
 
     it.each([
@@ -239,26 +297,22 @@ describe('AuthService', () => {
   });
 
   describe('refresh token uniqueness', () => {
-    it('should sign every refresh token with a distinct jwtid', async () => {
+    it('should mint a distinct opaque refresh token every time', async () => {
       jest.spyOn(prisma.user, 'findFirst').mockResolvedValue(null);
       (bcrypt.hash as jest.Mock).mockResolvedValue('h' as any);
       jest
         .spyOn(prisma.user, 'create')
-        .mockResolvedValue({ id: '1', email: 'a@b.c' } as any);
+        .mockResolvedValue({ id: '1', email: 'a@b.c', tokenVersion: 0 } as any);
       const sign = jest.spyOn(jwtService, 'sign').mockReturnValue('t');
       jest.spyOn(prisma.refreshToken, 'create').mockResolvedValue({} as any);
 
       const dto = { email: 'a@b.c', password: 'password1', name: 'Test' };
-      await service.register(dto);
-      await service.register(dto);
+      const a = await service.register(dto);
+      const b = await service.register(dto);
 
-      const refreshCalls = sign.mock.calls.filter(
-        ([, opts]) => (opts as any).expiresIn === 604800,
-      );
-      const ids = refreshCalls.map(([, opts]) => (opts as any).jwtid);
-      expect(ids).toHaveLength(2);
-      expect(ids[0]).toEqual(expect.any(String));
-      expect(ids[0]).not.toEqual(ids[1]);
+      expect(a.refreshToken).not.toEqual(b.refreshToken);
+      // refresh tokens are no longer JWTs: only the two access tokens are signed
+      expect(sign).toHaveBeenCalledTimes(2);
     });
   });
 });

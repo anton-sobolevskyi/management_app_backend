@@ -10,6 +10,13 @@ import { ProjectScope } from '../decorators/project-scope.decorator';
 import { Roles } from '../decorators/roles.decorator';
 import { Role } from '../../generated/prisma/enums';
 
+const uuid = (n: number) =>
+  `${String(n).repeat(8)}-${String(n).repeat(4)}-4${String(n).repeat(3)}-8${String(n).repeat(3)}-${String(n).repeat(12)}`;
+const P1 = uuid(1);
+const T1 = uuid(2);
+const C1 = uuid(3);
+const RID = uuid(4);
+
 describe('ProjectMemberGuard', () => {
   const authz = {
     assertProjectMember: jest.fn(),
@@ -53,7 +60,7 @@ describe('ProjectMemberGuard', () => {
 
   it('rejects unauthenticated requests', async () => {
     await expect(
-      guard.canActivate(ctx(MethodScoped, 'update', { params: { id: 'p1' } })),
+      guard.canActivate(ctx(MethodScoped, 'update', { params: { id: P1 } })),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -61,11 +68,11 @@ describe('ProjectMemberGuard', () => {
     const ok = await guard.canActivate(
       ctx(MethodScoped, 'update', {
         user: { userId: 'u1' },
-        params: { id: 'p1' },
+        params: { id: P1 },
       }),
     );
     expect(ok).toBe(true);
-    expect(authz.assertProjectMember).toHaveBeenCalledWith('u1', 'p1', [
+    expect(authz.assertProjectMember).toHaveBeenCalledWith('u1', P1, [
       Role.OWNER,
       Role.ADMIN,
     ]);
@@ -75,24 +82,20 @@ describe('ProjectMemberGuard', () => {
     await guard.canActivate(
       ctx(ClassScoped, 'list', {
         user: { userId: 'u1' },
-        params: { taskId: 't1' },
+        params: { taskId: T1 },
       }),
     );
-    expect(authz.assertTaskAccess).toHaveBeenCalledWith('u1', 't1', undefined);
+    expect(authz.assertTaskAccess).toHaveBeenCalledWith('u1', T1, undefined);
   });
 
   it('lets a method-level scope override the class-level one', async () => {
     await guard.canActivate(
       ctx(ClassScoped, 'override', {
         user: { userId: 'u1' },
-        params: { commentId: 'c1' },
+        params: { commentId: C1 },
       }),
     );
-    expect(authz.assertCommentAccess).toHaveBeenCalledWith(
-      'u1',
-      'c1',
-      undefined,
-    );
+    expect(authz.assertCommentAccess).toHaveBeenCalledWith('u1', C1, undefined);
     expect(authz.assertTaskAccess).not.toHaveBeenCalled();
   });
 
@@ -107,9 +110,9 @@ describe('ProjectMemberGuard', () => {
       h() {}
     }
     await guard.canActivate(
-      ctx(C, 'h', { user: { userId: 'u1' }, params: { rid: 'X' } }),
+      ctx(C, 'h', { user: { userId: 'u1' }, params: { rid: RID } }),
     );
-    expect(authz[method]).toHaveBeenCalledWith('u1', 'X', undefined);
+    expect(authz[method]).toHaveBeenCalledWith('u1', RID, undefined);
   });
 
   it('fails closed (500) when a guarded route declares no @ProjectScope', async () => {
@@ -117,7 +120,7 @@ describe('ProjectMemberGuard', () => {
       guard.canActivate(
         ctx(Unscoped, 'handler', {
           user: { userId: 'u1' },
-          params: { id: 'p1' },
+          params: { id: P1 },
         }),
       ),
     ).rejects.toBeInstanceOf(InternalServerErrorException);
@@ -132,6 +135,21 @@ describe('ProjectMemberGuard', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it.each(['p1', "1' OR '1'='1", '../etc/passwd', 'null', ''])(
+    'rejects the malformed id %j without any database lookup',
+    async (bad) => {
+      await expect(
+        guard.canActivate(
+          ctx(MethodScoped, 'update', {
+            user: { userId: 'u1' },
+            params: { id: bad },
+          }),
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(authz.assertProjectMember).not.toHaveBeenCalled();
+    },
+  );
+
   it('propagates the authorization failure', async () => {
     authz.assertProjectMember.mockRejectedValue(
       new NotFoundException('Project not found'),
@@ -140,7 +158,7 @@ describe('ProjectMemberGuard', () => {
       guard.canActivate(
         ctx(MethodScoped, 'update', {
           user: { userId: 'u1' },
-          params: { id: 'p1' },
+          params: { id: P1 },
         }),
       ),
     ).rejects.toBeInstanceOf(NotFoundException);

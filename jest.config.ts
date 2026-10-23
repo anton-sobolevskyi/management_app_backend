@@ -16,6 +16,10 @@ const config = {
   },
   collectCoverageFrom: ['**/*.(t|j)s'],
   testEnvironment: 'node',
+  // Floors a bit below current coverage: they stop regressions, not progress
+  coverageThreshold: {
+    global: { statements: 82, branches: 77, functions: 83, lines: 83 },
+  },
   coveragePathIgnorePatterns: ['/node_modules/', '/src/generated/'],
 };
 

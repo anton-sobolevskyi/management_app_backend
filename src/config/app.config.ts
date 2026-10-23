@@ -6,7 +6,6 @@
 export interface AppConfig {
   jwt: {
     accessSecret: string;
-    refreshSecret: string;
     accessExpiresIn: string;
     accessExpiresInSeconds: number;
     refreshExpiresIn: string;
@@ -22,6 +21,11 @@ export interface AppConfig {
   };
   db: { poolMax: number };
   swaggerEnabled: boolean;
+  /** Escape hatch for load tests / local debugging; refused in production. */
+  throttlingDisabled: boolean;
+  /** Max uploads being received at once (each is buffered in memory). */
+  maxConcurrentUploads: number;
+  rateLimit: { defaultPerMinute: number };
   backgroundJobsEnabled: boolean;
 }
 
@@ -55,7 +59,6 @@ export function getAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     jwt: {
       accessSecret: env.JWT_ACCESS_SECRET ?? '',
-      refreshSecret: env.JWT_REFRESH_SECRET ?? '',
       accessExpiresIn,
       accessExpiresInSeconds: Math.floor(
         parseDurationMs(accessExpiresIn) / 1000,
@@ -72,7 +75,14 @@ export function getAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       bucket: env.AWS_S3_BUCKET ?? '',
     },
     db: { poolMax: toInt(env.DB_POOL_MAX, 10) },
-    swaggerEnabled: env.SWAGGER_ENABLED !== 'false',
+    // Off by default in production (explicit opt-in); on elsewhere.
+    swaggerEnabled:
+      env.NODE_ENV === 'production'
+        ? env.SWAGGER_ENABLED === 'true'
+        : env.SWAGGER_ENABLED !== 'false',
+    throttlingDisabled: env.DISABLE_THROTTLE === 'true',
+    maxConcurrentUploads: toInt(env.UPLOAD_MAX_CONCURRENCY, 8),
+    rateLimit: { defaultPerMinute: toInt(env.RATE_LIMIT_PER_MINUTE, 600) },
     // Housekeeping timers are noise in unit/e2e runs.
     backgroundJobsEnabled:
       env.NODE_ENV !== 'test' && env.DISABLE_BACKGROUND_JOBS !== 'true',

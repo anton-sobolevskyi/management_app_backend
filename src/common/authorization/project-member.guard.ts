@@ -8,6 +8,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { isUUID } from 'class-validator';
 import type { Request } from 'express';
 import { AuthorizationService } from './authorization.service';
 import { ROLES_KEY } from '../decorators/roles.decorator';
@@ -61,7 +62,8 @@ export class ProjectMemberGuard implements CanActivate {
 
     const resourceId = request.params[scope.param] as string | undefined;
 
-    if (!resourceId) {
+    // ids are UUIDs: anything else can't exist, so skip the database entirely
+    if (!resourceId || !isUUID(resourceId)) {
       throw new NotFoundException('Resource not found');
     }
 

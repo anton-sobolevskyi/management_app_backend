@@ -28,15 +28,16 @@ describe('UsersService', () => {
     user: { findFirst: jest.fn(), update: jest.fn() },
     projectMember: {
       findMany: jest.fn(),
-      count: jest.fn(),
+      groupBy: jest.fn(),
       deleteMany: jest.fn(),
     },
     task: { updateMany: jest.fn() },
     refreshToken: { updateMany: jest.fn() },
+    $queryRaw: jest.fn(),
     $transaction: jest.fn(),
   };
-  const mockProjects = { softDelete: jest.fn() };
-  const mockAttachments = { remove: jest.fn() };
+  const mockProjects = { softDeleteInTx: jest.fn() };
+  const mockAttachments = { remove: jest.fn(), purgeObjects: jest.fn() };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -110,11 +111,12 @@ describe('UsersService', () => {
       expect(bcrypt.compare).toHaveBeenCalledWith('old-pass-1', 'stored-hash');
       expect(mockPrisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: { passwordHash: 'new-hash' },
+        // bumping the version kills access tokens that are still unexpired
+        data: { passwordHash: 'new-hash', tokenVersion: { increment: 1 } },
       });
       expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
         where: { userId: 'user-1', revoked: false },
-        data: { revoked: true },
+        data: { revoked: true, revokedAt: expect.any(Date) },
       });
     });
 
@@ -151,8 +153,24 @@ describe('UsersService', () => {
         avatarId: null,
       });
       mockPrisma.projectMember.findMany.mockResolvedValue([]);
+      mockPrisma.projectMember.groupBy.mockResolvedValue([]);
       mockPrisma.user.update.mockResolvedValue(mockUserResponse);
+      mockProjects.softDeleteInTx.mockResolvedValue({ stored: [] });
     });
+
+    // groupBy rows: other members of the owned projects, by role
+    const others = (
+      projectId: string,
+      owners: number,
+      plainMembers: number,
+    ) => [
+      ...(owners
+        ? [{ projectId, role: Role.OWNER, _count: { _all: owners } }]
+        : []),
+      ...(plainMembers
+        ? [{ projectId, role: Role.MEMBER, _count: { _all: plainMembers } }]
+        : []),
+    ];
 
     it('anonymises the account, removes memberships, unassigns tasks and revokes tokens', async () => {
       await service.softDelete('user-1');
@@ -166,7 +184,7 @@ describe('UsersService', () => {
       });
       expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
         where: { userId: 'user-1', revoked: false },
-        data: { revoked: true },
+        data: { revoked: true, revokedAt: expect.any(Date) },
       });
 
       const { data } = mockPrisma.user.update.mock.calls[0][0];
@@ -184,42 +202,62 @@ describe('UsersService', () => {
       mockPrisma.projectMember.findMany.mockResolvedValue([
         owned('p1', 'Team Alpha'),
       ]);
-      mockPrisma.projectMember.count.mockImplementation(
-        async ({ where }: any) => (where.role === Role.OWNER ? 0 : 3),
-      );
+      mockPrisma.projectMember.groupBy.mockResolvedValue(others('p1', 0, 3));
 
       const attempt = service.softDelete('user-1');
       await expect(attempt).rejects.toBeInstanceOf(ConflictException);
       await expect(attempt).rejects.toThrow(/Team Alpha/);
       expect(mockPrisma.user.update).not.toHaveBeenCalled();
-      expect(mockProjects.softDelete).not.toHaveBeenCalled();
+      expect(mockProjects.softDeleteInTx).not.toHaveBeenCalled();
+      expect(mockAttachments.purgeObjects).not.toHaveBeenCalled();
     });
 
     it('allows deletion when another OWNER keeps the project running', async () => {
       mockPrisma.projectMember.findMany.mockResolvedValue([
         owned('p1', 'Shared'),
       ]);
-      mockPrisma.projectMember.count
-        .mockResolvedValueOnce(1) // other owners
-        .mockResolvedValueOnce(4);
+      mockPrisma.projectMember.groupBy.mockResolvedValue([
+        ...others('p1', 1, 0),
+        ...others('p1', 0, 4),
+      ]);
 
       await service.softDelete('user-1');
 
-      expect(mockProjects.softDelete).not.toHaveBeenCalled();
+      expect(mockProjects.softDeleteInTx).not.toHaveBeenCalled();
       expect(mockPrisma.user.update).toHaveBeenCalled();
     });
 
-    it('deletes projects where the user is the only member', async () => {
+    it('deletes solo projects inside the same transaction and purges files after commit', async () => {
       mockPrisma.projectMember.findMany.mockResolvedValue([
         owned('p1', 'Solo'),
       ]);
-      mockPrisma.projectMember.count
-        .mockResolvedValueOnce(0)
-        .mockResolvedValueOnce(0);
+      const stored = [{ s3Bucket: 'b', s3Key: 'k' }];
+      mockProjects.softDeleteInTx.mockResolvedValue({ stored });
+      const order: string[] = [];
+      mockPrisma.$transaction.mockImplementation(async (cb: any) => {
+        const result = await cb(mockPrisma);
+        order.push('commit');
+        return result;
+      });
+      mockAttachments.purgeObjects.mockImplementation(async () => {
+        order.push('purge');
+      });
 
       await service.softDelete('user-1');
 
-      expect(mockProjects.softDelete).toHaveBeenCalledWith('p1');
+      // same tx client, so a later failure rolls the project delete back too
+      expect(mockProjects.softDeleteInTx).toHaveBeenCalledWith(
+        mockPrisma,
+        'p1',
+      );
+      expect(mockPrisma.$queryRaw).toHaveBeenCalled(); // project rows locked
+      expect(mockAttachments.purgeObjects).toHaveBeenCalledWith(stored);
+      expect(order).toEqual(['commit', 'purge']);
+    });
+
+    it('does not touch the database transaction twice (single $transaction)', async () => {
+      await service.softDelete('user-1');
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
     });
 
     it('removes the avatar file after the account is anonymised', async () => {

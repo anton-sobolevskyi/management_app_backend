@@ -4,6 +4,7 @@ declare global {
     interface User {
       userId: string;
       email: string;
+      tokenVersion?: number;
     }
   }
 }

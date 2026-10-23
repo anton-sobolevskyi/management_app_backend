@@ -15,6 +15,9 @@ FROM node:24-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+# bcrypt runs in libuv's thread pool (default 4 threads): a burst of logins would
+# otherwise starve other async work such as DNS lookups and file I/O.
+ENV UV_THREADPOOL_SIZE=8
 
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force

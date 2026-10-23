@@ -1,5 +1,6 @@
 import {
   IsString,
+  IsUUID,
   IsOptional,
   IsEnum,
   IsISO8601,
@@ -41,6 +42,6 @@ export class CreateTaskDto {
     description: 'Project member to assign. On update, null unassigns.',
   })
   @IsOptional()
-  @IsString()
+  @IsUUID()
   assignedToId?: string | null;
 }

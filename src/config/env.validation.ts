@@ -5,11 +5,9 @@ import { getAppConfig } from './app.config';
  * Call once at bootstrap (and from ConfigModule if desired).
  */
 export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
-  const required = [
-    'DATABASE_URL',
-    'JWT_ACCESS_SECRET',
-    'JWT_REFRESH_SECRET',
-  ] as const;
+  // JWT_REFRESH_SECRET is no longer used (refresh tokens are opaque random
+  // strings); it may still be present in old deployments and is ignored.
+  const required = ['DATABASE_URL', 'JWT_ACCESS_SECRET'] as const;
 
   const missing = required.filter((key) => !env[key]?.trim());
 
@@ -29,27 +27,28 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // Throws on malformed JWT_EXPIRES_IN / REFRESH_TOKEN_EXPIRES_IN
   getAppConfig(env);
 
-  if (env.JWT_ACCESS_SECRET === env.JWT_REFRESH_SECRET) {
-    throw new Error(
-      'JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different values',
-    );
-  }
-
   if (env.NODE_ENV === 'production') {
-    const weak = ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'].filter(
-      (key) => (env[key] ?? '').length < 32,
-    );
-    if (weak.length > 0) {
+    if ((env.JWT_ACCESS_SECRET ?? '').length < 32) {
       throw new Error(
-        `${weak.join(', ')} must be at least 32 characters in production`,
+        'JWT_ACCESS_SECRET must be at least 32 characters in production',
       );
+    }
+
+    // Without it CORS falls back to http://localhost:5173 *with credentials*.
+    if (!env.FRONTEND_URL?.trim()) {
+      throw new Error(
+        'FRONTEND_URL is required in production (comma-separated list of allowed origins)',
+      );
+    }
+
+    if (env.DISABLE_THROTTLE === 'true') {
+      throw new Error('DISABLE_THROTTLE must not be set in production');
     }
   }
 
   // Soft warnings for optional production services
   if (env.NODE_ENV === 'production') {
     const recommended = [
-      'FRONTEND_URL',
       'AWS_ACCESS_KEY_ID',
       'AWS_SECRET_ACCESS_KEY',
       'AWS_S3_BUCKET',

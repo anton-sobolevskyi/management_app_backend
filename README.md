@@ -91,23 +91,35 @@ cp .env.example .env
 
 ### Environment
 
-| Variable                                                     | Description                                                                                                                        |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                               | PostgreSQL connection string (**required**)                                                                                        |
-| `JWT_ACCESS_SECRET`                                          | Access token secret (**required**)                                                                                                 |
-| `JWT_REFRESH_SECRET`                                         | Refresh token secret (**required**)                                                                                                |
-| `AWS_REGION` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3 credentials                                                                                                                     |
-| `AWS_S3_BUCKET` / `AWS_S3_ENDPOINT`                          | Bucket and optional custom endpoint                                                                                                |
-| `FRONTEND_URL`                                               | CORS origin(s), comma-separated. Also the allow-list for `Origin` on `/auth/refresh` and `/auth/logout`                            |
-| `COOKIE_SAME_SITE`                                           | `lax` (default), `strict` or `none`. Use `none` (HTTPS only) when the frontend and API are on different sites                      |
-| `TRUST_PROXY`                                                | Reverse-proxy hops in front of the app (default `1` in production, `0` otherwise). Drives `req.ip` for rate limiting; avoid `true` |
-| `JWT_EXPIRES_IN` / `REFRESH_TOKEN_EXPIRES_IN`                | Token lifetimes, e.g. `15m`, `7d` (defaults `15m` / `7d`). Validated at startup                                                    |
-| `BCRYPT_ROUNDS`                                              | bcrypt cost, 10–15 (default `12`)                                                                                                  |
-| `DB_POOL_MAX`                                                | Connections per instance (default `10`)                                                                                            |
-| `SWAGGER_ENABLED`                                            | `false` hides `/api-docs` (default enabled)                                                                                        |
-| `RUN_MIGRATIONS`                                             | Docker only. `false` skips `prisma migrate deploy` at start (use with several replicas)                                            |
+| Variable                                                     | Description                                                                                                                          |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`                                               | PostgreSQL connection string (**required**)                                                                                          |
+| `JWT_ACCESS_SECRET`                                          | Access token secret (**required**)                                                                                                   |
+| `AWS_REGION` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3 credentials                                                                                                                       |
+| `AWS_S3_BUCKET` / `AWS_S3_ENDPOINT`                          | Bucket and optional custom endpoint                                                                                                  |
+| `FRONTEND_URL`                                               | CORS origin(s), comma-separated (**required in production**). Also the allow-list for `Origin` on `/auth/refresh` and `/auth/logout` |
+| `COOKIE_SAME_SITE`                                           | `lax` (default), `strict` or `none`. Use `none` (HTTPS only) when the frontend and API are on different sites                        |
+| `TRUST_PROXY`                                                | Reverse-proxy hops in front of the app (default `1` in production, `0` otherwise). Drives `req.ip` for rate limiting; avoid `true`   |
+| `JWT_EXPIRES_IN` / `REFRESH_TOKEN_EXPIRES_IN`                | Token lifetimes, e.g. `15m`, `7d` (defaults `15m` / `7d`). Validated at startup                                                      |
+| `BCRYPT_ROUNDS`                                              | bcrypt cost, 10–15 (default `12`)                                                                                                    |
+| `DB_POOL_MAX`                                                | Connections per instance (default `10`)                                                                                              |
+| `SWAGGER_ENABLED`                                            | `/api-docs` is on by default outside production; in production it is off unless set to `true`                                        |
+| `RATE_LIMIT_PER_MINUTE`                                      | Default per-IP ceiling for every route without its own `@Throttle` (default `600`; health probes are exempt)                         |
+| `DISABLE_THROTTLE`                                           | `true` turns rate limiting off (load tests only; the app refuses to start with it in production)                                     |
+| `UPLOAD_MAX_CONCURRENCY`                                     | Uploads received at once (each is buffered in memory, up to 10 MB); extra requests get `503` + `Retry-After` (default `8`)           |
+| `LOG_LEVEL`                                                  | pino level: `debug` (default outside production), `info` (production), `warn`, … Logs are JSON, one line per request with `req.id`   |
+| `RUN_MIGRATIONS`                                             | Docker only. `false` skips `prisma migrate deploy` at start (use with several replicas)                                              |
 
-In production the two JWT secrets must be different and at least 32 characters; the app refuses to start otherwise.
+In production `JWT_ACCESS_SECRET` must be at least 32 characters and `FRONTEND_URL` must be set; the app refuses to start otherwise.
+
+`JWT_REFRESH_SECRET` is no longer used: refresh tokens are opaque random strings stored hashed in the database. It may stay in existing deployments and is ignored.
+
+### Security notes
+
+- **Refresh rotation.** Replaying an already-used refresh token inside a 20 s grace window (a second tab, a retried request) is rejected with `401` but keeps the session; replaying it later is treated as theft and revokes every session of the user. Clients should simply retry once after a `401` on refresh, using the cookie from the first response.
+- **Access tokens** carry a version (`tv`); changing the password bumps it, so old access tokens stop working immediately instead of at expiry.
+- **Rate limiting** is in-memory per process. With several instances the limits are per instance; plug a shared store (e.g. Redis) in via `setRateLimitStore` in `src/common/throttler/rate-limit.store.ts`.
+- **Search** (`?q=`) relies on `pg_trgm` GIN indexes created by migration `20261022120000_*`; the database role running migrations must be allowed to `CREATE EXTENSION pg_trgm` (a trusted extension on PostgreSQL 13+).
 
 ### Development
 

@@ -15,6 +15,8 @@ import {
   ALLOWED_MIME_TYPES,
   ATTACHMENT_PUBLIC_SELECT,
   IMAGE_MIME_TYPES,
+  MAX_ATTACHMENTS_PER_COMMENT,
+  MAX_ATTACHMENTS_PER_TASK,
   MAX_FILE_SIZE,
 } from './attachments.constants';
 import {
@@ -54,6 +56,13 @@ export class AttachmentsService {
       throw new NotFoundException('Task not found');
     }
 
+    const existing = await this.prisma.attachment.count({ where: { taskId } });
+    if (existing >= MAX_ATTACHMENTS_PER_TASK) {
+      throw new BadRequestException(
+        `A task can have at most ${MAX_ATTACHMENTS_PER_TASK} attachments`,
+      );
+    }
+
     return this.storeAndCreate(file, `tasks/${taskId}`, {
       uploadedById,
       taskId,
@@ -82,6 +91,15 @@ export class AttachmentsService {
 
     // Same rule as editing the comment itself: author or project OWNER/ADMIN
     await this.authz.assertCommentAuthorOrAdmin(uploadedById, comment);
+
+    const existing = await this.prisma.attachment.count({
+      where: { commentId },
+    });
+    if (existing >= MAX_ATTACHMENTS_PER_COMMENT) {
+      throw new BadRequestException(
+        `A comment can have at most ${MAX_ATTACHMENTS_PER_COMMENT} attachments`,
+      );
+    }
 
     return this.storeAndCreate(file, `comments/${commentId}`, {
       uploadedById,
@@ -220,19 +238,28 @@ export class AttachmentsService {
   }
 
   /**
-   * Delete the attachment rows of the given tasks/comments inside the caller's
-   * transaction and return the files to purge. Call `purgeObjects` with the
-   * result only after the transaction commits, so a rollback never leaves
-   * rows pointing at deleted files.
+   * Delete the attachment rows of the given tasks/comments (or of a whole
+   * project) inside the caller's transaction and return the files to purge.
+   * Call `purgeObjects` with the result only after the transaction commits, so
+   * a rollback never leaves rows pointing at deleted files.
+   *
+   * `projectId` uses relation filters, so deleting a big project doesn't
+   * build huge `IN (...)` lists.
    */
   async detachFor(
     tx: Prisma.TransactionClient,
-    scope: { taskIds?: string[]; commentIds?: string[] },
+    scope: { taskIds?: string[]; commentIds?: string[]; projectId?: string },
   ): Promise<StoredObject[]> {
     const or: Prisma.AttachmentWhereInput[] = [];
     if (scope.taskIds?.length) or.push({ taskId: { in: scope.taskIds } });
     if (scope.commentIds?.length) {
       or.push({ commentId: { in: scope.commentIds } });
+    }
+    if (scope.projectId) {
+      or.push(
+        { task: { projectId: scope.projectId } },
+        { comment: { task: { projectId: scope.projectId } } },
+      );
     }
     if (or.length === 0) return [];
 
@@ -250,10 +277,36 @@ export class AttachmentsService {
     return attachments;
   }
 
-  /** Best-effort S3 cleanup; failures are logged, never thrown. */
+  /**
+   * Best-effort S3 cleanup; failures are logged, never thrown. Many objects
+   * are removed with batched DeleteObjects calls (1000 keys per request).
+   */
   async purgeObjects(objects: StoredObject[]): Promise<void> {
-    for (const object of objects) {
-      await this.discardUpload(object.s3Bucket, object.s3Key);
+    if (objects.length === 1) {
+      await this.discardUpload(objects[0].s3Bucket, objects[0].s3Key);
+      return;
+    }
+
+    const byBucket = new Map<string, string[]>();
+    for (const { s3Bucket, s3Key } of objects) {
+      const keys = byBucket.get(s3Bucket) ?? [];
+      keys.push(s3Key);
+      byBucket.set(s3Bucket, keys);
+    }
+
+    for (const [bucket, keys] of byBucket) {
+      try {
+        const failed = await this.s3Service.deleteObjects(bucket, keys);
+        if (failed.length > 0) {
+          this.logger.warn(
+            `Failed to delete ${failed.length} S3 object(s) in ${bucket}, e.g. ${failed[0]}`,
+          );
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Failed to delete ${keys.length} S3 object(s) in ${bucket}: ${(err as Error).message}`,
+        );
+      }
     }
   }
 

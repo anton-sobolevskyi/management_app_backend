@@ -9,14 +9,17 @@ export class LocalStrategy extends PassportStrategy(Strategy) {
     super({ usernameField: 'email' });
   }
 
-  async validate(email: string, password: string) {
+  async validate(email: unknown, password: unknown) {
     const user = await this.authService.validateUser(email, password);
 
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Same shape as the JWT strategy, so `req.user` is always { userId, email }
-    return { userId: user.id, email: user.email };
+    return {
+      userId: user.id,
+      email: user.email,
+      tokenVersion: user.tokenVersion,
+    };
   }
 }

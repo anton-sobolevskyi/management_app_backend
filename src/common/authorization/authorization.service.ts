@@ -10,8 +10,16 @@ import { Role } from '../../generated/prisma/enums';
 export class AuthorizationService {
   constructor(private prisma: PrismaService) {}
 
+  private checkRoles(role: Role, allowedRoles?: Role[]) {
+    if (allowedRoles?.length && !allowedRoles.includes(role)) {
+      throw new ForbiddenException(
+        `Requires one of roles: ${allowedRoles.join(', ')}`,
+      );
+    }
+  }
+
   /**
-   * Ensures the user is a member of the project.
+   * Ensures the user is a member of the (live) project, with ONE query.
    * Optionally requires one of the given roles.
    * Returns the membership for further checks.
    * Non-members receive 404 (not 403) to avoid leaking project existence.
@@ -21,78 +29,100 @@ export class AuthorizationService {
     projectId: string,
     allowedRoles?: Role[],
   ) {
-    const project = await this.prisma.project.findFirst({
-      where: { id: projectId, deletedAt: null },
-      select: { id: true },
-    });
-
-    if (!project) {
-      throw new NotFoundException('Project not found');
-    }
-
-    const membership = await this.prisma.projectMember.findUnique({
-      where: {
-        userId_projectId: { userId, projectId },
-      },
+    const membership = await this.prisma.projectMember.findFirst({
+      where: { userId, projectId, project: { deletedAt: null } },
     });
 
     if (!membership) {
       throw new NotFoundException('Project not found');
     }
 
-    if (allowedRoles?.length && !allowedRoles.includes(membership.role)) {
-      throw new ForbiddenException(
-        `Requires one of roles: ${allowedRoles.join(', ')}`,
-      );
-    }
-
+    this.checkRoles(membership.role, allowedRoles);
     return membership;
   }
 
-  /** Resolve project from a task, then assert membership */
+  /**
+   * Resolve project from a task and assert membership, with ONE query.
+   * A missing task and a task in a project the user can't see look the same (404).
+   */
   async assertTaskAccess(
     userId: string,
     taskId: string,
     allowedRoles?: Role[],
   ) {
     const task = await this.prisma.task.findFirst({
-      where: { id: taskId, deletedAt: null },
-      select: { id: true, projectId: true },
+      where: {
+        id: taskId,
+        deletedAt: null,
+        project: { deletedAt: null, members: { some: { userId } } },
+      },
+      select: {
+        id: true,
+        projectId: true,
+        project: {
+          select: {
+            members: { where: { userId }, select: { role: true }, take: 1 },
+          },
+        },
+      },
     });
 
-    if (!task) {
+    const role = task?.project.members[0]?.role;
+    if (!task || !role) {
       throw new NotFoundException('Task not found');
     }
 
-    await this.assertProjectMember(userId, task.projectId, allowedRoles);
-    return task;
+    this.checkRoles(role, allowedRoles);
+    return { id: task.id, projectId: task.projectId };
   }
 
-  /** Resolve project from comment → task, then assert membership */
+  /**
+   * Resolve project from comment → task and assert membership, with ONE query.
+   * The caller's role is returned so author/admin checks need no extra query.
+   */
   async assertCommentAccess(
     userId: string,
     commentId: string,
     allowedRoles?: Role[],
   ) {
     const comment = await this.prisma.comment.findFirst({
-      where: { id: commentId, deletedAt: null },
+      where: {
+        id: commentId,
+        deletedAt: null,
+        task: { project: { deletedAt: null, members: { some: { userId } } } },
+      },
       select: {
         id: true,
         authorId: true,
-        task: { select: { projectId: true } },
+        task: {
+          select: {
+            projectId: true,
+            project: {
+              select: {
+                members: {
+                  where: { userId },
+                  select: { role: true },
+                  take: 1,
+                },
+              },
+            },
+          },
+        },
       },
     });
 
-    if (!comment) {
+    const role = comment?.task.project.members[0]?.role;
+    if (!comment || !role) {
       throw new NotFoundException('Comment not found');
     }
 
-    await this.assertProjectMember(
-      userId,
-      comment.task.projectId,
-      allowedRoles,
-    );
-    return comment;
+    this.checkRoles(role, allowedRoles);
+    return {
+      id: comment.id,
+      authorId: comment.authorId,
+      task: { projectId: comment.task.projectId },
+      role,
+    };
   }
 
   /**
@@ -189,25 +219,27 @@ export class AuthorizationService {
    */
   async assertCommentAuthorOrAdmin(
     userId: string,
-    comment: { authorId: string; task: { projectId: string } },
+    comment: { authorId: string; task: { projectId: string }; role?: Role },
   ) {
     if (comment.authorId === userId) {
       return;
     }
 
-    const membership = await this.prisma.projectMember.findUnique({
-      where: {
-        userId_projectId: {
-          userId,
-          projectId: comment.task.projectId,
-        },
-      },
-    });
+    // assertCommentAccess already fetched the role; only look it up otherwise
+    const role =
+      comment.role ??
+      (
+        await this.prisma.projectMember.findUnique({
+          where: {
+            userId_projectId: {
+              userId,
+              projectId: comment.task.projectId,
+            },
+          },
+        })
+      )?.role;
 
-    const isAdmin =
-      membership?.role === Role.OWNER || membership?.role === Role.ADMIN;
-
-    if (!isAdmin) {
+    if (role !== Role.OWNER && role !== Role.ADMIN) {
       throw new ForbiddenException(
         'Only the author or a project admin can modify this comment',
       );

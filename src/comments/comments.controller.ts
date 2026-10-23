@@ -1,49 +1,48 @@
 import {
+  UseGuards,
   Controller,
   Get,
-  Post,
   Param,
+  Patch,
   Body,
-  Query,
-  UseGuards,
+  Delete,
 } from '@nestjs/common';
-import { CommentsService } from './comments.service';
-import { CreateCommentDto } from './dto/create-comment.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ProjectMemberGuard } from '../common/authorization/project-member.guard';
+import { CommentsService } from './comments.service';
+import { UpdateCommentDto } from './dto/update-comment.dto';
+import { ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { ProjectScope } from '../common/decorators/project-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { ApiBearerAuth, ApiOkResponse, ApiProperty } from '@nestjs/swagger';
-import {
-  PaginatedResponseDto,
-  PaginationQueryDto,
-} from '../common/dto/pagination.dto';
-import { CommentResponseDto } from './dto/comment-response.dto';
-
-export class PaginatedCommentResponseDto extends PaginatedResponseDto<CommentResponseDto> {
-  @ApiProperty({ type: () => CommentResponseDto, isArray: true })
-  declare data: CommentResponseDto[];
-}
 
 @UseGuards(JwtAuthGuard, ProjectMemberGuard)
 @ApiBearerAuth('access-token')
-@ProjectScope('task', 'taskId')
-@Controller('tasks/:taskId/comments')
+@ProjectScope('comment', 'id')
+@Controller('comments')
 export class CommentsController {
   constructor(private commentsService: CommentsService) {}
 
-  @Post()
-  create(
-    @Param('taskId') taskId: string,
-    @Body() dto: CreateCommentDto,
-    @CurrentUser('userId') userId: string,
-  ) {
-    return this.commentsService.create(taskId, dto, userId);
+  @ApiOperation({ summary: 'Get a comment by ID' })
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.commentsService.findOne(id);
   }
 
-  @ApiOkResponse({ type: PaginatedCommentResponseDto })
-  @Get()
-  findAll(@Param('taskId') taskId: string, @Query() query: PaginationQueryDto) {
-    return this.commentsService.findAll(taskId, query);
+  @ApiOperation({ summary: 'Update a comment by ID (author or project admin)' })
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateCommentDto,
+    @CurrentUser('userId') userId: string,
+  ) {
+    return this.commentsService.update(id, dto, userId);
+  }
+
+  @ApiOperation({
+    summary: 'Soft delete a comment by ID (author or project admin)',
+  })
+  @Delete(':id')
+  softDelete(@Param('id') id: string, @CurrentUser('userId') userId: string) {
+    return this.commentsService.softDelete(id, userId);
   }
 }

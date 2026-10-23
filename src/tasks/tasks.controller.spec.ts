@@ -7,15 +7,10 @@ describe('TasksController', () => {
   let controller: TasksController;
   let service: TasksService;
 
-  const mockTasksService = {
-    create: jest.fn(),
-    findAll: jest.fn(),
-  };
-
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [TasksController],
-      providers: [{ provide: TasksService, useValue: mockTasksService }],
+      providers: [{ provide: TasksService, useValue: { findOne: jest.fn() } }],
     })
       .overrideGuard(ProjectMemberGuard)
       .useValue({ canActivate: () => true })
@@ -25,33 +20,15 @@ describe('TasksController', () => {
     service = module.get<TasksService>(TasksService);
   });
 
-  it('should call service.create with correct params', async () => {
-    const dto = { title: 'New Task' } as any;
+  it('should call service.findOne', async () => {
+    const mockTask = { id: 'task-1', title: 'Task' };
+    const spy = jest
+      .spyOn(service, 'findOne')
+      .mockResolvedValue(mockTask as any);
 
-    await controller.create('proj-1', dto, 'user-1');
+    const result = await controller.findOne('task-1');
 
-    expect(service.create).toHaveBeenCalledWith('proj-1', dto, 'user-1');
-  });
-
-  it('should split filters from pagination for findAll', async () => {
-    await controller.findAll('proj-1', {
-      page: 2,
-      limit: 5,
-      status: 'TODO',
-      q: 'bug',
-      dueBefore: '2026-10-31',
-    } as any);
-
-    expect(service.findAll).toHaveBeenCalledWith(
-      'proj-1',
-      {
-        status: 'TODO',
-        assignedToId: undefined,
-        q: 'bug',
-        dueBefore: '2026-10-31',
-        dueAfter: undefined,
-      },
-      { page: 2, limit: 5 },
-    );
+    expect(spy).toHaveBeenCalledWith('task-1');
+    expect(result).toEqual(mockTask);
   });
 });

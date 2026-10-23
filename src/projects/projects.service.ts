@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { AttachmentsService } from '../attachments/attachments.service';
+import {
+  AttachmentsService,
+  StoredObject,
+} from '../attachments/attachments.service';
+import type { Prisma } from '../generated/prisma/client';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ProjectResponseDto } from './dto/project-response.dto';
@@ -13,6 +17,8 @@ import {
 } from '../common/dto/pagination.dto';
 
 const MEMBER_PREVIEW_LIMIT = 20;
+const MEMBER_DETAIL_LIMIT = 100;
+const TX_TIMEOUT_MS = 20_000;
 
 @Injectable()
 export class ProjectsService {
@@ -77,7 +83,10 @@ export class ProjectsService {
     const project = await this.prisma.project.findFirst({
       where: { id, deletedAt: null },
       include: {
+        // Capped like the list view; GET /projects/:id/members pages through all
         members: {
+          orderBy: [{ joinedAt: 'asc' }, { id: 'asc' }],
+          take: MEMBER_DETAIL_LIMIT,
           include: {
             user: {
               select: {
@@ -90,6 +99,7 @@ export class ProjectsService {
             },
           },
         },
+        _count: { select: { members: true } },
       },
     });
 
@@ -97,11 +107,24 @@ export class ProjectsService {
       throw new NotFoundException('Project not found');
     }
 
-    return project;
+    const { _count, ...rest } = project;
+    return { ...rest, memberCount: _count.members };
+  }
+
+  /** Cheap existence check; the guard already proved membership. */
+  private async assertExists(id: string): Promise<void> {
+    const project = await this.prisma.project.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
   }
 
   async update(id: string, dto: UpdateProjectDto): Promise<ProjectResponseDto> {
-    await this.findOne(id);
+    await this.assertExists(id);
 
     return this.prisma.project.update({
       where: { id },
@@ -111,50 +134,54 @@ export class ProjectsService {
   }
 
   async softDelete(id: string): Promise<ProjectResponseDto> {
-    await this.findOne(id);
-
-    const now = new Date();
+    await this.assertExists(id);
 
     // All-or-nothing in the database; files are removed only after commit
-    const { project, stored } = await this.prisma.$transaction(async (tx) => {
-      const tasks = await tx.task.findMany({
-        where: { projectId: id, deletedAt: null },
-        select: { id: true },
-      });
-      const taskIds = tasks.map((t) => t.id);
-
-      // Attachments of already-deleted tasks were removed when those were deleted
-      const comments = await tx.comment.findMany({
-        where: { taskId: { in: taskIds }, deletedAt: null },
-        select: { id: true },
-      });
-
-      const stored = await this.attachmentsService.detachFor(tx, {
-        taskIds,
-        commentIds: comments.map((c) => c.id),
-      });
-
-      await tx.comment.updateMany({
-        where: { taskId: { in: taskIds }, deletedAt: null },
-        data: { deletedAt: now },
-      });
-
-      await tx.task.updateMany({
-        where: { projectId: id, deletedAt: null },
-        data: { deletedAt: now },
-      });
-
-      const project = await tx.project.update({
-        where: { id },
-        data: { deletedAt: now },
-        include: { members: true },
-      });
-
-      return { project, stored };
-    });
+    const { project, stored } = await this.prisma.$transaction(
+      (tx) => this.softDeleteInTx(tx, id),
+      { timeout: TX_TIMEOUT_MS },
+    );
 
     await this.attachmentsService.purgeObjects(stored);
 
     return project;
+  }
+
+  /**
+   * Soft-delete a project (with its tasks, comments and attachment rows)
+   * inside the caller's transaction. The caller must purge the returned
+   * `stored` objects from S3 after the transaction commits.
+   *
+   * Uses relation filters instead of loading ids, so cost doesn't grow with
+   * the size of `IN (...)` lists.
+   */
+  async softDeleteInTx(
+    tx: Prisma.TransactionClient,
+    id: string,
+  ): Promise<{ project: ProjectResponseDto; stored: StoredObject[] }> {
+    const now = new Date();
+
+    // Attachments of already-deleted tasks were removed when those were deleted
+    const stored = await this.attachmentsService.detachFor(tx, {
+      projectId: id,
+    });
+
+    await tx.comment.updateMany({
+      where: { deletedAt: null, task: { projectId: id } },
+      data: { deletedAt: now },
+    });
+
+    await tx.task.updateMany({
+      where: { projectId: id, deletedAt: null },
+      data: { deletedAt: now },
+    });
+
+    const project = await tx.project.update({
+      where: { id },
+      data: { deletedAt: now },
+      include: { members: true },
+    });
+
+    return { project, stored };
   }
 }

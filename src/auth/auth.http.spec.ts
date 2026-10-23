@@ -20,11 +20,12 @@ type Row = {
   expiresAt: Date;
   createdAt: Date;
   revoked: boolean;
+  revokedAt: Date | null;
 };
 
 function createFakePrisma() {
   const rows: Row[] = [];
-  const user = { id: 'u1', email: 'a@b.c', deletedAt: null };
+  const user = { id: 'u1', email: 'a@b.c', deletedAt: null, tokenVersion: 0 };
   let seq = 0;
 
   const matches = (row: Row, where: Partial<Row>) =>
@@ -40,7 +41,7 @@ function createFakePrisma() {
       create: ({
         data,
       }: {
-        data: Omit<Row, 'id' | 'createdAt' | 'revoked'>;
+        data: Omit<Row, 'id' | 'createdAt' | 'revoked' | 'revokedAt'>;
       }) => {
         if (rows.some((r) => r.token === data.token)) {
           return Promise.reject(
@@ -55,6 +56,7 @@ function createFakePrisma() {
           id: `rt-${++seq}`,
           createdAt: new Date(),
           revoked: false,
+          revokedAt: null,
         };
         rows.push(row);
         return Promise.resolve(row);
@@ -86,7 +88,6 @@ describe('Auth refresh flow over HTTP', () => {
 
   beforeAll(async () => {
     process.env.JWT_ACCESS_SECRET = 'access-secret';
-    process.env.JWT_REFRESH_SECRET = 'refresh-secret';
     process.env.NODE_ENV = 'test';
     process.env.FRONTEND_URL = 'https://app.example.com';
     fake = createFakePrisma();
@@ -160,7 +161,7 @@ describe('Auth refresh flow over HTTP', () => {
     expect([a.status, b.status].sort()).toEqual([200, 401]);
   });
 
-  it('revokes every session when a rotated token is replayed', async () => {
+  it('only rejects a just-rotated token (second tab) without killing the session', async () => {
     const login = await request(app.getHttpServer())
       .post('/auth/register')
       .send({ email: 'a@b.c', password: 'password1', name: 'Test' });
@@ -171,6 +172,35 @@ describe('Auth refresh flow over HTTP', () => {
       .set('Cookie', original)
       .expect(200);
     const current = pair(cookieOf(rotated)!);
+
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', original)
+      .expect(401);
+
+    // inside the grace window the newest token keeps working
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', current)
+      .expect(200);
+  });
+
+  it('revokes every session when a rotated token is replayed after the grace window', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/auth/register')
+      .send({ email: 'a@b.c', password: 'password1', name: 'Test' });
+    const original = pair(cookieOf(login)!);
+
+    const rotated = await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', original)
+      .expect(200);
+    const current = pair(cookieOf(rotated)!);
+
+    // pretend the rotation happened a minute ago
+    fake.rows
+      .filter((r) => r.revoked)
+      .forEach((r) => (r.revokedAt = new Date(Date.now() - 60_000)));
 
     await request(app.getHttpServer())
       .post('/auth/refresh')

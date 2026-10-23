@@ -14,8 +14,6 @@ services:
         sync: false
       - key: JWT_ACCESS_SECRET
         generateValue: true
-      - key: JWT_REFRESH_SECRET
-        generateValue: true
       - key: AWS_REGION
         sync: false
       - key: AWS_ACCESS_KEY_ID

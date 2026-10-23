@@ -1,67 +1,56 @@
 import {
+  Body,
   Controller,
   Get,
-  Post,
   Param,
-  Body,
-  Query,
   UseGuards,
+  Patch,
+  Delete,
 } from '@nestjs/common';
 import { TasksService } from './tasks.service';
-import { CreateTaskDto } from './dto/create-task.dto';
+import { UpdateTaskDto } from './dto/update-task.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ProjectMemberGuard } from '../common/authorization/project-member.guard';
+import { Roles } from '../common/decorators/roles.decorator';
 import { ProjectScope } from '../common/decorators/project-scope.decorator';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Role } from '../generated/prisma/enums';
 import {
   ApiBearerAuth,
-  ApiExtraModels,
-  ApiOkResponse,
   ApiOperation,
   ApiProperty,
+  ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { TaskQueryDto } from './dto/task-query.dto';
 import { TaskResponseDto } from './dto/task-response.dto';
 import { PaginatedResponseDto } from '../common/dto/pagination.dto';
 
-export class PaginatedTaskResponseDto extends PaginatedResponseDto<TaskResponseDto> {
-  @ApiProperty({ type: () => TaskResponseDto, isArray: true })
-  declare data: TaskResponseDto[];
-}
-
-@ApiTags('project tasks')
+@ApiTags('tasks')
 @UseGuards(JwtAuthGuard, ProjectMemberGuard)
 @ApiBearerAuth('access-token')
-@ProjectScope('project', 'projectId')
-@Controller('projects/:projectId/tasks')
+@ProjectScope('task', 'id')
+@Controller('tasks')
 export class TasksController {
   constructor(private tasksService: TasksService) {}
 
-  @ApiOperation({ summary: 'Create a new task in a project' })
-  @Post()
-  create(
-    @Param('projectId') projectId: string,
-    @Body() dto: CreateTaskDto,
-    @CurrentUser('userId') userId: string,
-  ) {
-    return this.tasksService.create(projectId, dto, userId);
+  @ApiOperation({ summary: 'Get a task by ID' })
+  @ApiResponse({ status: 200, type: TaskResponseDto })
+  @ApiResponse({ status: 404, description: 'Task not found' })
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.tasksService.findOne(id);
   }
 
-  @ApiOkResponse({ type: PaginatedTaskResponseDto })
-  @ApiOperation({
-    summary: 'Get paginated tasks in a project',
-    description:
-      'Supports filters: status, assignedToId, q (title/description search), dueBefore, dueAfter',
-  })
-  @Get()
-  findAll(@Param('projectId') projectId: string, @Query() query: TaskQueryDto) {
-    const { status, assignedToId, q, dueBefore, dueAfter, ...pagination } =
-      query;
-    return this.tasksService.findAll(
-      projectId,
-      { status, assignedToId, q, dueBefore, dueAfter },
-      pagination,
-    );
+  @ApiOperation({ summary: 'Update a task' })
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateTaskDto) {
+    return this.tasksService.update(id, dto);
+  }
+
+  @ApiOperation({ summary: 'Soft delete a task' })
+  @ApiResponse({ status: 200, type: TaskResponseDto })
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Delete(':id')
+  softDelete(@Param('id') id: string) {
+    return this.tasksService.softDelete(id);
   }
 }

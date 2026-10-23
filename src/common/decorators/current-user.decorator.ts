@@ -8,6 +8,8 @@ import type { Request } from 'express';
 export interface AuthUser {
   userId: string;
   email: string;
+  /** Only set on the login path (LocalStrategy), to mint a matching token. */
+  tokenVersion?: number;
 }
 
 /**

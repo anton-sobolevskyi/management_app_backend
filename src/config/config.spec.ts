@@ -139,12 +139,43 @@ describe('validateEnv (secrets and durations)', () => {
   const base = {
     DATABASE_URL: 'x',
     JWT_ACCESS_SECRET: 'a'.repeat(40),
-    JWT_REFRESH_SECRET: 'b'.repeat(40),
   };
-  it('rejects identical access and refresh secrets', () => {
+  it('no longer requires (or compares) JWT_REFRESH_SECRET', () => {
+    expect(() => validateEnv(env(base))).not.toThrow();
     expect(() =>
       validateEnv(env({ ...base, JWT_REFRESH_SECRET: base.JWT_ACCESS_SECRET })),
-    ).toThrow(/must be different/);
+    ).not.toThrow();
+  });
+  it('requires FRONTEND_URL in production (no localhost CORS fallback)', () => {
+    const prod = { ...base, NODE_ENV: 'production' };
+    expect(() => validateEnv(env(prod))).toThrow(/FRONTEND_URL is required/);
+    expect(() =>
+      validateEnv(env({ ...prod, FRONTEND_URL: 'https://app.example.com' })),
+    ).not.toThrow();
+  });
+  it('refuses DISABLE_THROTTLE in production', () => {
+    expect(() =>
+      validateEnv(
+        env({
+          ...base,
+          NODE_ENV: 'production',
+          FRONTEND_URL: 'https://app.example.com',
+          DISABLE_THROTTLE: 'true',
+        }),
+      ),
+    ).toThrow(/DISABLE_THROTTLE/);
+  });
+  it('keeps Swagger off by default in production, on elsewhere', () => {
+    expect(getAppConfig(env({ NODE_ENV: 'production' })).swaggerEnabled).toBe(
+      false,
+    );
+    expect(
+      getAppConfig(env({ NODE_ENV: 'production', SWAGGER_ENABLED: 'true' }))
+        .swaggerEnabled,
+    ).toBe(true);
+    expect(getAppConfig(env({ NODE_ENV: 'development' })).swaggerEnabled).toBe(
+      true,
+    );
   });
   it('rejects short secrets in production only', () => {
     const weak = {
