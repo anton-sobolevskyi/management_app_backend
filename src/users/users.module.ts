@@ -4,9 +4,10 @@ import { UsersController } from './users.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { AttachmentsModule } from '../attachments/attachments.module';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
-  imports: [PrismaModule, ProjectsModule, AttachmentsModule],
+  imports: [PrismaModule, ProjectsModule, AttachmentsModule, AuthModule],
   providers: [UsersService],
   controllers: [UsersController],
   exports: [UsersService],

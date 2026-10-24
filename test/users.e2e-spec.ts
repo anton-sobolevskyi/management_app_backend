@@ -57,6 +57,7 @@ describe('Users (e2e)', () => {
     return request(app.getHttpServer())
       .delete('/users/me')
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ currentPassword: 'password1' })
       .expect(200);
   });
 });

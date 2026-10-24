@@ -12,6 +12,7 @@ import { LocalAuthGuard } from './guards/local-auth.guard';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { TokenCleanupService } from './token-cleanup.service';
+import { PasswordService } from './password.service';
 import { SimpleThrottlerGuard } from '../common/throttler/simple-throttler.guard';
 
 @Module({
@@ -20,6 +21,7 @@ import { SimpleThrottlerGuard } from '../common/throttler/simple-throttler.guard
     AuthService,
     AccountTokensService,
     AccountRecoveryService,
+    PasswordService,
     JwtAuthGuard,
     LocalAuthGuard,
     JwtStrategy,
@@ -28,5 +30,6 @@ import { SimpleThrottlerGuard } from '../common/throttler/simple-throttler.guard
     TokenCleanupService,
   ],
   controllers: [AuthController],
+  exports: [AccountRecoveryService, PasswordService],
 })
 export class AuthModule {}

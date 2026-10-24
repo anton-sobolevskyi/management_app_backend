@@ -35,7 +35,7 @@ import {
   REFRESH_COOKIE_NAME,
   getRefreshCookieOptions,
 } from '../config/cookie.config';
-import { getAppConfig } from '../config/app.config';
+import { AppConfigService } from '../config/app-config.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 
@@ -47,6 +47,7 @@ export class AuthController {
   constructor(
     private authService: AuthService,
     private recovery: AccountRecoveryService,
+    private config: AppConfigService,
   ) {}
 
   @ApiOperation({ summary: 'Register a new user' })
@@ -201,7 +202,7 @@ export class AuthController {
   private setRefreshCookie(res: ExpressResponse, token: string) {
     res.cookie(REFRESH_COOKIE_NAME, token, {
       ...getRefreshCookieOptions(),
-      maxAge: getAppConfig().jwt.refreshTtlMs,
+      maxAge: this.config.jwt.refreshTtlMs,
     });
   }
 }

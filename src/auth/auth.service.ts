@@ -4,13 +4,14 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcrypt';
-import { randomBytes, randomUUID } from 'crypto';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { hashToken } from '../common/utils/token-hash';
 import { normalizeEmail } from '../common/utils/email';
-import { getAppConfig } from '../config/app.config';
+import { AppConfigService } from '../config/app-config.service';
+import { PasswordService } from './password.service';
+import { revokeAllRefreshTokens } from './refresh-token.util';
 
 /**
  * A refresh token that was rotated (or logged out) a moment ago may still be
@@ -28,12 +29,11 @@ export interface IssuedTokens {
 
 @Injectable()
 export class AuthService {
-  /** Lazily built bcrypt hash used to keep unknown-email logins as slow as real ones. */
-  private dummyHash?: Promise<string>;
-
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private config: AppConfigService,
+    private passwords: PasswordService,
   ) {}
 
   async register(dto: RegisterDto): Promise<IssuedTokens> {
@@ -47,10 +47,7 @@ export class AuthService {
       throw new ConflictException('Email already registered');
     }
 
-    const passwordHash = await bcrypt.hash(
-      dto.password,
-      getAppConfig().bcryptRounds,
-    );
+    const passwordHash = await this.passwords.hash(dto.password);
 
     // A concurrent registration of the same email loses on the unique index;
     // the exception filter turns that P2002 into a 409.
@@ -81,11 +78,14 @@ export class AuthService {
     if (!user) {
       // Spend the same time as a real comparison so response timing doesn't
       // reveal which emails are registered.
-      await bcrypt.compare(password, await this.getDummyHash());
+      await this.passwords.verifyAgainstDummy(password);
       return null;
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+    const isPasswordValid = await this.passwords.verify(
+      password,
+      user.passwordHash,
+    );
 
     if (!isPasswordValid) {
       return null;
@@ -124,10 +124,7 @@ export class AuthService {
         Date.now() - stored.revokedAt.getTime() < REFRESH_REUSE_GRACE_MS;
 
       if (!withinGrace) {
-        await this.prisma.refreshToken.updateMany({
-          where: { userId: stored.userId, revoked: false },
-          data: { revoked: true, revokedAt: new Date() },
-        });
+        await revokeAllRefreshTokens(this.prisma, stored.userId);
       }
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -162,17 +159,12 @@ export class AuthService {
     });
   }
 
-  private getDummyHash(): Promise<string> {
-    this.dummyHash ??= bcrypt.hash(randomUUID(), getAppConfig().bcryptRounds);
-    return this.dummyHash;
-  }
-
   private async generateTokens(
     userId: string,
     email: string,
     tokenVersion: number,
   ): Promise<IssuedTokens> {
-    const { jwt } = getAppConfig();
+    const { jwt } = this.config;
 
     // `tv` lets a password change invalidate access tokens immediately.
     const accessToken = this.jwtService.sign(

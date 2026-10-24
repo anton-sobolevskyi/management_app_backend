@@ -5,7 +5,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { getAppConfig } from '../config/app.config';
+import { AppConfigService } from '../config/app-config.service';
 
 const HOUR_MS = 60 * 60 * 1000;
 const REVOKED_RETENTION_MS = 7 * 24 * HOUR_MS;
@@ -20,10 +20,13 @@ export class TokenCleanupService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TokenCleanupService.name);
   private timer?: NodeJS.Timeout;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private config: AppConfigService,
+  ) {}
 
   onModuleInit() {
-    if (!getAppConfig().backgroundJobsEnabled) return;
+    if (!this.config.backgroundJobsEnabled) return;
 
     // Delay the first run so it doesn't compete with startup traffic
     const first = setTimeout(() => void this.run(), 60_000);

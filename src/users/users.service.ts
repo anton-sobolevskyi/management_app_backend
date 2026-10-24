@@ -4,7 +4,6 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
-import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProjectsService } from '../projects/projects.service';
@@ -15,18 +14,13 @@ import {
 import { Role } from '../generated/prisma/enums';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { DeleteAccountDto } from './dto/delete-account.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { normalizeEmail } from '../common/utils/email';
-import { getAppConfig } from '../config/app.config';
-
-const userSelect = {
-  id: true,
-  email: true,
-  name: true,
-  avatarId: true,
-  emailVerifiedAt: true,
-  createdAt: true,
-} as const;
+import { USER_PROFILE_SELECT } from './user-select';
+import { PasswordService } from '../auth/password.service';
+import { revokeAllRefreshTokens } from '../auth/refresh-token.util';
+import { AccountRecoveryService } from '../auth/account-recovery.service';
 
 @Injectable()
 export class UsersService {
@@ -34,12 +28,14 @@ export class UsersService {
     private prisma: PrismaService,
     private projectsService: ProjectsService,
     private attachmentsService: AttachmentsService,
+    private passwords: PasswordService,
+    private recovery: AccountRecoveryService,
   ) {}
 
   async findOne(id: string): Promise<UserResponseDto> {
     const user = await this.prisma.user.findFirst({
       where: { id, deletedAt: null },
-      select: userSelect,
+      select: USER_PROFILE_SELECT,
     });
 
     if (!user) {
@@ -49,34 +45,79 @@ export class UsersService {
     return user;
   }
 
+  /**
+   * Update the profile. Changing the e-mail address needs the current
+   * password: otherwise a stolen (short-lived) access token could point the
+   * account at the attacker's mailbox and then use "forgot password" to keep it.
+   *
+   * Fields are copied one by one (no `...dto` spread), so a new DTO property can
+   * never reach the database by accident.
+   */
   async update(id: string, dto: UpdateUserDto): Promise<UserResponseDto> {
     const current = await this.findOne(id);
 
     const email = dto.email ? normalizeEmail(dto.email) : undefined;
+    const emailChanged = email !== undefined && email !== current.email;
 
-    if (email) {
+    if (emailChanged) {
+      // Before the "taken" lookup, so only the account owner can probe it
+      await this.assertCurrentPassword(
+        id,
+        dto.currentPassword,
+        'Current password is required to change the e-mail address',
+      );
+
       const taken = await this.prisma.user.findFirst({
-        where: {
-          email,
-          deletedAt: null,
-          NOT: { id },
-        },
+        where: { email, deletedAt: null, NOT: { id } },
+        select: { id: true },
       });
       if (taken) {
         throw new ConflictException('Email already in use');
       }
     }
 
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id },
       data: {
-        ...dto,
-        email,
+        ...(dto.name !== undefined && { name: dto.name }),
         // A different address has not been confirmed yet
-        ...(email && email !== current.email ? { emailVerifiedAt: null } : {}),
+        ...(emailChanged && { email, emailVerifiedAt: null }),
       },
-      select: userSelect,
+      select: USER_PROFILE_SELECT,
     });
+
+    if (emailChanged) {
+      // Not awaited: mail latency must not slow the response (never throws)
+      void this.recovery.notifyEmailChanged(id, current.email, email);
+    }
+
+    return updated;
+  }
+
+  /**
+   * Re-authentication for sensitive actions. 400 (not 401) on a wrong password
+   * on purpose: a 401 makes clients try to refresh the session and log out.
+   */
+  private async assertCurrentPassword(
+    id: string,
+    password: string | undefined,
+    missingMessage: string,
+  ): Promise<void> {
+    if (!password) {
+      throw new BadRequestException(missingMessage);
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: { id, deletedAt: null },
+      select: { passwordHash: true },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (!(await this.passwords.verify(password, user.passwordHash))) {
+      throw new BadRequestException('Current password is incorrect');
+    }
   }
 
   /**
@@ -85,23 +126,11 @@ export class UsersService {
    * working immediately too (JwtStrategy compares the version).
    */
   async changePassword(id: string, dto: ChangePasswordDto): Promise<void> {
-    const user = await this.prisma.user.findFirst({
-      where: { id, deletedAt: null },
-      select: { id: true, passwordHash: true },
-    });
-
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    const matches = await bcrypt.compare(
+    await this.assertCurrentPassword(
+      id,
       dto.currentPassword,
-      user.passwordHash,
+      'Current password is required',
     );
-
-    if (!matches) {
-      throw new BadRequestException('Current password is incorrect');
-    }
 
     if (dto.currentPassword === dto.newPassword) {
       throw new BadRequestException(
@@ -109,20 +138,14 @@ export class UsersService {
       );
     }
 
-    const passwordHash = await bcrypt.hash(
-      dto.newPassword,
-      getAppConfig().bcryptRounds,
-    );
+    const passwordHash = await this.passwords.hash(dto.newPassword);
 
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id },
         data: { passwordHash, tokenVersion: { increment: 1 } },
       }),
-      this.prisma.refreshToken.updateMany({
-        where: { userId: id, revoked: false },
-        data: { revoked: true, revokedAt: new Date() },
-      }),
+      revokeAllRefreshTokens(this.prisma, id),
     ]);
   }
 
@@ -137,8 +160,19 @@ export class UsersService {
    * - Personal data is erased: name, password hash, avatar and email are
    *   replaced (the email is freed for re-registration).
    * - All refresh tokens are revoked.
+   * - Requires the current password (re-authentication).
    */
-  async softDelete(id: string): Promise<UserResponseDto> {
+  async softDelete(
+    id: string,
+    dto: DeleteAccountDto,
+  ): Promise<UserResponseDto> {
+    // Outside the transaction: bcrypt is slow and must not hold row locks
+    await this.assertCurrentPassword(
+      id,
+      dto.currentPassword,
+      'Current password is required to delete the account',
+    );
+
     // One transaction: the ownership checks, the deletion of solo projects and
     // the account wipe succeed or fail together, and the project rows stay
     // locked so nobody can change ownership between the check and the delete.
@@ -215,10 +249,7 @@ export class UsersService {
           data: { assignedToId: null },
         });
         await tx.projectMember.deleteMany({ where: { userId: id } });
-        await tx.refreshToken.updateMany({
-          where: { userId: id, revoked: false },
-          data: { revoked: true, revokedAt: new Date() },
-        });
+        await revokeAllRefreshTokens(tx, id);
 
         const deleted = await tx.user.update({
           where: { id },
@@ -230,7 +261,7 @@ export class UsersService {
             passwordHash: `!${randomUUID()}`,
             avatarId: null,
           },
-          select: userSelect,
+          select: USER_PROFILE_SELECT,
         });
 
         return { deleted, avatarId: user.avatarId, stored };

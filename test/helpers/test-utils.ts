@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { AuthResponseDto } from '../../src/auth/dto/auth-response.dto';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
+import { PrismaService } from '../../src/prisma/prisma.service';
 
 export async function createTestApp(): Promise<INestApplication> {
   process.env.NODE_ENV = 'test';
@@ -30,10 +31,30 @@ export type TestUser = {
   name: string;
 };
 
-/** Register a fresh user — password must include a letter and a number. */
+/** Mark an address as confirmed, as if the user had followed the mailed link. */
+export async function verifyEmail(
+  app: INestApplication,
+  email: string,
+): Promise<void> {
+  await app.get(PrismaService).user.updateMany({
+    where: { email: email.trim().toLowerCase(), deletedAt: null },
+    data: { emailVerifiedAt: new Date() },
+  });
+}
+
+/**
+ * Register a fresh user — password must include a letter and a number.
+ * The address is marked verified by default (inviting needs verified users);
+ * pass `verified: false` to test the sign-up state itself.
+ */
 export async function registerUser(
   app: INestApplication,
-  overrides?: Partial<{ email: string; password: string; name: string }>,
+  overrides?: Partial<{
+    email: string;
+    password: string;
+    name: string;
+    verified: boolean;
+  }>,
 ): Promise<TestUser> {
   const email =
     overrides?.email ??
@@ -45,6 +66,10 @@ export async function registerUser(
     .post('/auth/register')
     .send({ email, password, name })
     .expect(201);
+
+  if (overrides?.verified !== false) {
+    await verifyEmail(app, email);
+  }
 
   return { accessToken: res.body.accessToken, email, password, name };
 }

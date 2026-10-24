@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AttachmentsController } from './attachments.controller';
 import { AttachmentsService } from './attachments.service';
+import { AppConfigService } from '../config/app-config.service';
+import { SimpleThrottlerGuard } from '../common/throttler/simple-throttler.guard';
 import { ProjectMemberGuard } from '../common/authorization/project-member.guard';
 
 describe('AttachmentsController', () => {
@@ -13,6 +15,7 @@ describe('AttachmentsController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AttachmentsController],
       providers: [
+        { provide: AppConfigService, useValue: new AppConfigService() },
         {
           provide: AttachmentsService,
           useValue: {
@@ -26,6 +29,8 @@ describe('AttachmentsController', () => {
         },
       ],
     })
+      .overrideGuard(SimpleThrottlerGuard)
+      .useValue({ canActivate: () => true })
       .overrideGuard(ProjectMemberGuard)
       .useValue({ canActivate: () => true })
       .compile();

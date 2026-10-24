@@ -3,6 +3,7 @@ import { getAllowedOrigins } from './cors.config';
 import { getTrustProxy } from './trust-proxy.config';
 import { validateEnv } from './env.validation';
 import { getAppConfig, parseDurationMs } from './app.config';
+import { AppConfigService } from './app-config.service';
 
 const env = (e: Record<string, string>) => e as NodeJS.ProcessEnv;
 
@@ -227,5 +228,94 @@ describe('validateEnv (secrets and durations)', () => {
         }),
       ),
     ).toThrow(/MAIL_TRANSPORT=memory/);
+  });
+});
+
+describe('NODE_ENV handling (fails closed)', () => {
+  const base = {
+    DATABASE_URL: 'postgresql://x',
+    JWT_ACCESS_SECRET: 'a'.repeat(40),
+  };
+
+  it('rejects an unrecognised NODE_ENV at startup', () => {
+    expect(() => validateEnv(env({ ...base, NODE_ENV: 'prod' }))).toThrow(
+      /NODE_ENV must be one of/,
+    );
+  });
+
+  it.each(['development', 'test', 'production', ''])(
+    'accepts NODE_ENV=%p',
+    (value) => {
+      const e = { ...base, NODE_ENV: value };
+      if (value === 'production') {
+        Object.assign(e, { FRONTEND_URL: 'https://app.example.com' });
+      }
+      expect(() => validateEnv(env(e))).not.toThrow();
+    },
+  );
+
+  it('treats an unknown value as production, and nothing as development', () => {
+    expect(getAppConfig(env({ NODE_ENV: 'prod' })).isProduction).toBe(true);
+    expect(getAppConfig(env({})).nodeEnv).toBe('development');
+    expect(getAppConfig(env({ NODE_ENV: 'test' })).nodeEnv).toBe('test');
+  });
+
+  it('only DISABLE_THROTTLE disables throttling: not NODE_ENV=test, not in production', () => {
+    expect(getAppConfig(env({ NODE_ENV: 'test' })).throttlingDisabled).toBe(
+      false,
+    );
+    expect(
+      getAppConfig(env({ NODE_ENV: 'test', DISABLE_THROTTLE: 'true' }))
+        .throttlingDisabled,
+    ).toBe(true);
+    expect(
+      getAppConfig(env({ NODE_ENV: 'production', DISABLE_THROTTLE: 'true' }))
+        .throttlingDisabled,
+    ).toBe(false);
+    expect(
+      getAppConfig(env({ NODE_ENV: 'typo', DISABLE_THROTTLE: 'true' }))
+        .throttlingDisabled,
+    ).toBe(false);
+  });
+});
+
+describe('AppConfigService', () => {
+  it('exposes the parsed configuration and does not re-read the environment', () => {
+    const e = env({ JWT_ACCESS_SECRET: 's', BCRYPT_ROUNDS: '11' });
+    const config = new AppConfigService(e);
+    expect(config.jwt.accessSecret).toBe('s');
+    expect(config.bcryptRounds).toBe(11);
+
+    e.BCRYPT_ROUNDS = '14';
+    expect(config.bcryptRounds).toBe(11);
+  });
+});
+
+describe('S3 orphan sweep config', () => {
+  it('is off by default and parses the three modes', () => {
+    expect(getAppConfig(env({})).s3.orphanSweep).toBe('off');
+    for (const mode of ['off', 'dry-run', 'delete'] as const) {
+      expect(getAppConfig(env({ S3_ORPHAN_SWEEP: mode })).s3.orphanSweep).toBe(
+        mode,
+      );
+    }
+  });
+
+  it('rejects anything else instead of guessing', () => {
+    expect(() => getAppConfig(env({ S3_ORPHAN_SWEEP: 'true' }))).toThrow(
+      /S3_ORPHAN_SWEEP must be one of/,
+    );
+  });
+
+  it('defaults to a one-day grace period; a zero or negative value falls back to it', () => {
+    expect(getAppConfig(env({})).s3.orphanGraceMs).toBe(24 * 3_600_000);
+    for (const bad of ['0', '-3', 'abc']) {
+      expect(
+        getAppConfig(env({ S3_ORPHAN_GRACE_HOURS: bad })).s3.orphanGraceMs,
+      ).toBe(24 * 3_600_000);
+    }
+    expect(
+      getAppConfig(env({ S3_ORPHAN_GRACE_HOURS: '1' })).s3.orphanGraceMs,
+    ).toBe(3_600_000);
   });
 });

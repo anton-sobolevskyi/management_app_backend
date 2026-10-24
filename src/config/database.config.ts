@@ -3,7 +3,13 @@ import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { getAppConfig } from './app.config';
 
-export const getDatabaseConfig = (): { adapter: PrismaPg; pool: Pool } => {
+/**
+ * @param poolMax pass the injected config's value; the default re-reads the
+ *   environment and is meant for scripts outside the Nest container (seed).
+ */
+export const getDatabaseConfig = (
+  poolMax: number = getAppConfig().db.poolMax,
+): { adapter: PrismaPg; pool: Pool } => {
   const url = process.env.DATABASE_URL;
 
   if (!url) {
@@ -12,7 +18,7 @@ export const getDatabaseConfig = (): { adapter: PrismaPg; pool: Pool } => {
 
   const pool = new Pool({
     connectionString: url,
-    max: getAppConfig().db.poolMax,
+    max: poolMax,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
   });

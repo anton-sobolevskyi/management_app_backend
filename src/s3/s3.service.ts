@@ -5,10 +5,11 @@ import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
+  ListObjectsV2Command,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'crypto';
-import { getAppConfig } from '../config/app.config';
+import { AppConfigService } from '../config/app-config.service';
 import { MIME_EXTENSIONS } from '../common/utils/file-signature';
 
 export interface PresignOptions {
@@ -36,8 +37,8 @@ export class S3Service {
   private readonly client: S3Client;
   private readonly bucket: string;
 
-  constructor() {
-    const { s3 } = getAppConfig();
+  constructor(config: AppConfigService) {
+    const { s3 } = config;
 
     this.client = new S3Client({
       region: s3.region,
@@ -113,6 +114,36 @@ export class S3Service {
     }
 
     return failed;
+  }
+
+  /**
+   * One page (up to 1000) of the objects under a prefix. Needs the
+   * `s3:ListBucket` permission, which the rest of the app does not.
+   */
+  async listObjects(
+    prefix: string,
+    continuationToken?: string,
+  ): Promise<{
+    objects: { key: string; lastModified: Date }[];
+    nextToken?: string;
+  }> {
+    const result = await this.client.send(
+      new ListObjectsV2Command({
+        Bucket: this.bucket,
+        Prefix: prefix,
+        MaxKeys: 1000,
+        ContinuationToken: continuationToken,
+      }),
+    );
+
+    return {
+      objects: (result.Contents ?? []).flatMap((o) =>
+        o.Key && o.LastModified
+          ? [{ key: o.Key, lastModified: o.LastModified }]
+          : [],
+      ),
+      nextToken: result.IsTruncated ? result.NextContinuationToken : undefined,
+    };
   }
 
   async getPresignedUrl(

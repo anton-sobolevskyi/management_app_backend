@@ -1,11 +1,15 @@
 import { TokenCleanupService } from './token-cleanup.service';
+import { AppConfigService } from '../config/app-config.service';
 
 describe('TokenCleanupService', () => {
   const prisma: any = {
     refreshToken: { deleteMany: jest.fn() },
     oneTimeToken: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
   };
-  const service = new TokenCleanupService(prisma);
+  const service = new TokenCleanupService(
+    prisma,
+    new AppConfigService({ NODE_ENV: 'test' }),
+  );
   const DAY = 86_400_000;
 
   beforeEach(() => jest.clearAllMocks());
@@ -37,11 +41,12 @@ describe('TokenCleanupService', () => {
   });
 
   it('starts an unref-ed timer when enabled and stops it on destroy', () => {
-    const original = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
     jest.useFakeTimers();
     try {
-      const s = new TokenCleanupService(prisma);
+      const s = new TokenCleanupService(
+        prisma,
+        new AppConfigService({ NODE_ENV: 'production' }),
+      );
       prisma.refreshToken.deleteMany.mockResolvedValue({ count: 0 });
       s.onModuleInit();
       jest.advanceTimersByTime(60_001);
@@ -51,7 +56,6 @@ describe('TokenCleanupService', () => {
       expect(prisma.refreshToken.deleteMany).toHaveBeenCalledTimes(1);
     } finally {
       jest.useRealTimers();
-      process.env.NODE_ENV = original;
     }
   });
 

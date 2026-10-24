@@ -1,12 +1,12 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import * as bcrypt from 'bcrypt';
 import { OneTimeTokenType } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { AccountTokensService } from './account-tokens.service';
 import { normalizeEmail } from '../common/utils/email';
 import { getAllowedOrigins } from '../config/cors.config';
-import { getAppConfig } from '../config/app.config';
+import { PasswordService } from './password.service';
+import { revokeAllRefreshTokens } from './refresh-token.util';
 
 export const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000; // 1 hour
 export const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -20,6 +20,7 @@ export class AccountRecoveryService {
     private prisma: PrismaService,
     private tokens: AccountTokensService,
     private mail: MailService,
+    private passwords: PasswordService,
   ) {}
 
   /** The frontend page that receives the token, e.g. https://app/reset-password?token=… */
@@ -68,10 +69,7 @@ export class AccountRecoveryService {
       OneTimeTokenType.PASSWORD_RESET,
     );
 
-    const passwordHash = await bcrypt.hash(
-      newPassword,
-      getAppConfig().bcryptRounds,
-    );
+    const passwordHash = await this.passwords.hash(newPassword);
     const now = new Date();
 
     // `email` ties the token to the address it was sent to; if the user changed
@@ -86,10 +84,7 @@ export class AccountRecoveryService {
           emailVerifiedAt: now,
         },
       }),
-      this.prisma.refreshToken.updateMany({
-        where: { userId, revoked: false },
-        data: { revoked: true, revokedAt: now },
-      }),
+      revokeAllRefreshTokens(this.prisma, userId, now),
     ]);
 
     if (updated.count === 0) {
@@ -144,6 +139,39 @@ export class AccountRecoveryService {
         `${this.link('/verify-email', token)}\n\n` +
         `If you did not create an account, ignore this e-mail.`,
     });
+  }
+
+  /**
+   * After an address change: warn the OLD mailbox (so a hijacked account does
+   * not go unnoticed) and ask the NEW one to confirm. Best effort; never throws.
+   */
+  async notifyEmailChanged(
+    userId: string,
+    oldEmail: string,
+    newEmail: string,
+  ): Promise<void> {
+    try {
+      await this.mail.send({
+        to: oldEmail,
+        subject: 'Your e-mail address was changed',
+        text:
+          `The e-mail address of your account was changed to ${newEmail}.\n\n` +
+          `If this was you, no action is needed.\n` +
+          `If it was not, someone else has access to your account: change your password immediately.`,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Could not notify the old address: ${(err as Error).message}`,
+      );
+    }
+
+    try {
+      await this.sendVerificationEmail(userId);
+    } catch (err) {
+      this.logger.warn(
+        `Could not send verification e-mail: ${(err as Error).message}`,
+      );
+    }
   }
 
   /** Same as above for a freshly registered address; never throws. */

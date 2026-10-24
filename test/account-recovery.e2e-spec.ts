@@ -41,7 +41,7 @@ describe('Account recovery (e2e)', () => {
 
   describe('e-mail verification', () => {
     it('sends a link on sign-up; using it verifies the address once', async () => {
-      const user = await registerUser(app);
+      const user = await registerUser(app, { verified: false });
       expect((await me(user.accessToken)).body.emailVerifiedAt).toBeNull();
 
       const token = await tokenMailedTo(user.email, /Confirm/);
@@ -64,7 +64,7 @@ describe('Account recovery (e2e)', () => {
       await http().post('/auth/verify-email').send({}).expect(400);
 
       // a password-reset token must not verify an address
-      const user = await registerUser(app);
+      const user = await registerUser(app, { verified: false });
       await http().post('/auth/forgot-password').send({ email: user.email });
       const resetToken = await tokenMailedTo(user.email, /Reset/);
       await http()
@@ -76,7 +76,7 @@ describe('Account recovery (e2e)', () => {
     it('resend-verification needs a login, and skips verified accounts', async () => {
       await http().post('/auth/resend-verification').expect(401);
 
-      const user = await registerUser(app);
+      const user = await registerUser(app, { verified: false });
       await tokenMailedTo(user.email, /Confirm/);
       const before = mailsTo(user.email);
 
@@ -101,7 +101,7 @@ describe('Account recovery (e2e)', () => {
     });
 
     it('changing the address makes the account unverified again', async () => {
-      const user = await registerUser(app);
+      const user = await registerUser(app, { verified: false });
       const token = await tokenMailedTo(user.email, /Confirm/);
       await http().post('/auth/verify-email').send({ token }).expect(204);
 
@@ -109,10 +109,20 @@ describe('Account recovery (e2e)', () => {
       const updated = await http()
         .patch('/users/me')
         .set('Authorization', `Bearer ${user.accessToken}`)
-        .send({ email: newEmail })
+        .send({ email: newEmail, currentPassword: user.password })
         .expect(200);
 
       expect(updated.body.emailVerifiedAt).toBeNull();
+
+      // The notice to the old address and the confirmation link to the new one
+      // are sent in the background; let them land before the next test counts
+      // the outbox.
+      await tokenMailedTo(newEmail, /Confirm/);
+      expect(
+        mail.outbox.some(
+          (m) => m.to === user.email && /changed/i.test(m.subject),
+        ),
+      ).toBe(true);
     });
   });
 
@@ -135,7 +145,7 @@ describe('Account recovery (e2e)', () => {
     });
 
     it('resets the password, ends every session, and the link works once', async () => {
-      const user = await registerUser(app);
+      const user = await registerUser(app, { verified: false });
       const login = await http()
         .post('/auth/login')
         .send({ email: user.email, password: user.password })
@@ -184,7 +194,7 @@ describe('Account recovery (e2e)', () => {
     });
 
     it('a newer reset link invalidates the previous one', async () => {
-      const user = await registerUser(app);
+      const user = await registerUser(app, { verified: false });
       await http().post('/auth/forgot-password').send({ email: user.email });
       const first = await tokenMailedTo(user.email, /Reset/);
 
@@ -207,7 +217,7 @@ describe('Account recovery (e2e)', () => {
     });
 
     it('two simultaneous uses of one link: exactly one wins', async () => {
-      const user = await registerUser(app);
+      const user = await registerUser(app, { verified: false });
       await http().post('/auth/forgot-password').send({ email: user.email });
       const token = await tokenMailedTo(user.email, /Reset/);
 

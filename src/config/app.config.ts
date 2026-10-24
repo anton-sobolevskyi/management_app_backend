@@ -3,7 +3,16 @@
  * `process.env.X as string` goes through here, so defaults, parsing and
  * validation live in one place.
  */
+export type NodeEnv = 'development' | 'test' | 'production';
+
 export interface AppConfig {
+  /**
+   * Fail-closed: only an explicit "development" / "test" (or nothing at all)
+   * selects the relaxed behaviour. Any other value, e.g. a typo like "prod",
+   * is treated as production so security defaults are never silently lost.
+   */
+  nodeEnv: NodeEnv;
+  isProduction: boolean;
   jwt: {
     accessSecret: string;
     accessExpiresIn: string;
@@ -18,10 +27,21 @@ export interface AppConfig {
     accessKeyId: string;
     secretAccessKey: string;
     bucket: string;
+    /**
+     * Removal of stored files that no attachment row points to (left behind by
+     * a failed upload cleanup or a failed purge). Destructive, so: `off`
+     * (default), `dry-run` (only logs what it would delete) or `delete`.
+     */
+    orphanSweep: 'off' | 'dry-run' | 'delete';
+    /** Files younger than this are never touched (uploads in flight). */
+    orphanGraceMs: number;
   };
   db: { poolMax: number };
   swaggerEnabled: boolean;
-  /** Escape hatch for load tests / local debugging; refused in production. */
+  /**
+   * Escape hatch for load tests / e2e runs. Only DISABLE_THROTTLE=true turns
+   * rate limiting off (never NODE_ENV), and never in production.
+   */
   throttlingDisabled: boolean;
   mail: {
     /** smtp = real delivery; console = log only (dev); memory = keep in RAM (tests) */
@@ -58,6 +78,26 @@ function toInt(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+export function resolveNodeEnv(env: NodeJS.ProcessEnv): NodeEnv {
+  const raw = env.NODE_ENV?.trim();
+  if (!raw) return 'development';
+  if (raw === 'development' || raw === 'test') return raw;
+  return 'production';
+}
+
+export function resolveOrphanSweep(
+  env: NodeJS.ProcessEnv,
+): 'off' | 'dry-run' | 'delete' {
+  const value = env.S3_ORPHAN_SWEEP?.trim();
+  if (!value) return 'off';
+  if (value === 'off' || value === 'dry-run' || value === 'delete') {
+    return value;
+  }
+  throw new Error(
+    `S3_ORPHAN_SWEEP must be one of off, dry-run, delete (got "${value}")`,
+  );
+}
+
 function resolveMailTransport(
   env: NodeJS.ProcessEnv,
 ): 'smtp' | 'console' | 'memory' {
@@ -71,8 +111,12 @@ function resolveMailTransport(
 export function getAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const accessExpiresIn = env.JWT_EXPIRES_IN?.trim() || '15m';
   const refreshExpiresIn = env.REFRESH_TOKEN_EXPIRES_IN?.trim() || '7d';
+  const nodeEnv = resolveNodeEnv(env);
+  const isProduction = nodeEnv === 'production';
 
   return {
+    nodeEnv,
+    isProduction,
     jwt: {
       accessSecret: env.JWT_ACCESS_SECRET ?? '',
       accessExpiresIn,
@@ -90,14 +134,16 @@ export function getAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       accessKeyId: env.AWS_ACCESS_KEY_ID ?? '',
       secretAccessKey: env.AWS_SECRET_ACCESS_KEY ?? '',
       bucket: env.AWS_S3_BUCKET ?? '',
+      orphanSweep: resolveOrphanSweep(env),
+      orphanGraceMs:
+        Math.max(1, toInt(env.S3_ORPHAN_GRACE_HOURS, 24)) * 3_600_000,
     },
     db: { poolMax: toInt(env.DB_POOL_MAX, 10) },
     // Off by default in production (explicit opt-in); on elsewhere.
-    swaggerEnabled:
-      env.NODE_ENV === 'production'
-        ? env.SWAGGER_ENABLED === 'true'
-        : env.SWAGGER_ENABLED !== 'false',
-    throttlingDisabled: env.DISABLE_THROTTLE === 'true',
+    swaggerEnabled: isProduction
+      ? env.SWAGGER_ENABLED === 'true'
+      : env.SWAGGER_ENABLED !== 'false',
+    throttlingDisabled: !isProduction && env.DISABLE_THROTTLE === 'true',
     mail: {
       transport: resolveMailTransport(env),
       smtpUrl: env.SMTP_URL?.trim() || undefined,
@@ -107,6 +153,6 @@ export function getAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     rateLimit: { defaultPerMinute: toInt(env.RATE_LIMIT_PER_MINUTE, 600) },
     // Housekeeping timers are noise in unit/e2e runs.
     backgroundJobsEnabled:
-      env.NODE_ENV !== 'test' && env.DISABLE_BACKGROUND_JOBS !== 'true',
+      nodeEnv !== 'test' && env.DISABLE_BACKGROUND_JOBS !== 'true',
   };
 }

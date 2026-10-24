@@ -4,6 +4,8 @@ import { AuthService } from './auth.service';
 import { AccountRecoveryService } from './account-recovery.service';
 import { UnauthorizedException } from '@nestjs/common';
 import { Response } from 'express';
+import { AppConfigService } from '../config/app-config.service';
+import { SimpleThrottlerGuard } from '../common/throttler/simple-throttler.guard';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -18,6 +20,7 @@ describe('AuthController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AuthController],
       providers: [
+        { provide: AppConfigService, useValue: new AppConfigService() },
         {
           provide: AuthService,
           useValue: {
@@ -38,7 +41,10 @@ describe('AuthController', () => {
           },
         },
       ],
-    }).compile();
+    })
+      .overrideGuard(SimpleThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<AuthController>(AuthController);
     authService = module.get<AuthService>(AuthService);

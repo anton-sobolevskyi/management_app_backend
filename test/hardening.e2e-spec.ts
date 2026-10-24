@@ -399,6 +399,7 @@ describe('Hardening (e2e)', () => {
       const refused = await http()
         .delete('/users/me')
         .set(...bearer(owner))
+        .send({ currentPassword: owner.password })
         .expect(409);
       expect(refused.body.message).toContain('Test Project');
       await http()
@@ -422,6 +423,7 @@ describe('Hardening (e2e)', () => {
       await http()
         .delete('/users/me')
         .set(...bearer(owner))
+        .send({ currentPassword: owner.password })
         .expect(200);
 
       // gone: token, login and membership; the email can be reused
@@ -460,6 +462,7 @@ describe('Hardening (e2e)', () => {
       await http()
         .delete('/users/me')
         .set(...bearer(solo))
+        .send({ currentPassword: solo.password })
         .expect(200);
 
       const project = await prisma.project.findUnique({
@@ -488,6 +491,7 @@ describe('Hardening (e2e)', () => {
       await http()
         .delete('/users/me')
         .set(...bearer(user))
+        .send({ currentPassword: user.password })
         .expect(200);
 
       expect(

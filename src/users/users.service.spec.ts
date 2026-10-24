@@ -10,6 +10,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ProjectsService } from '../projects/projects.service';
 import { AttachmentsService } from '../attachments/attachments.service';
 import { Role } from '../generated/prisma/enums';
+import { AppConfigService } from '../config/app-config.service';
+import { AccountRecoveryService } from '../auth/account-recovery.service';
+import { PasswordService } from '../auth/password.service';
 
 jest.mock('bcrypt');
 
@@ -38,6 +41,7 @@ describe('UsersService', () => {
   };
   const mockProjects = { softDeleteInTx: jest.fn() };
   const mockAttachments = { remove: jest.fn(), purgeObjects: jest.fn() };
+  const mockRecovery = { notifyEmailChanged: jest.fn() };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -46,6 +50,13 @@ describe('UsersService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ProjectsService, useValue: mockProjects },
         { provide: AttachmentsService, useValue: mockAttachments },
+        { provide: AccountRecoveryService, useValue: mockRecovery },
+        {
+          provide: PasswordService,
+          useValue: new PasswordService(
+            new AppConfigService({ BCRYPT_ROUNDS: '10' }),
+          ),
+        },
       ],
     }).compile();
 
@@ -71,13 +82,78 @@ describe('UsersService', () => {
   });
 
   describe('update', () => {
-    it('normalises the email and rejects one taken by someone else', async () => {
-      mockPrisma.user.findFirst
-        .mockResolvedValueOnce(mockUserResponse) // findOne
-        .mockResolvedValueOnce({ id: 'other' }); // taken
+    const current = { ...mockUserResponse };
+
+    it('changes the name without asking for the password', async () => {
+      mockPrisma.user.findFirst.mockResolvedValueOnce(current);
+      mockPrisma.user.update.mockResolvedValue({ ...current, name: 'New' });
+
+      await service.update('user-1', { name: 'New' });
+
+      expect(bcrypt.compare).not.toHaveBeenCalled();
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { name: 'New' },
+        select: expect.any(Object),
+      });
+      expect(mockRecovery.notifyEmailChanged).not.toHaveBeenCalled();
+    });
+
+    it('treats the same address (any case) as no change: no password, stays verified', async () => {
+      mockPrisma.user.findFirst.mockResolvedValueOnce(current);
+      mockPrisma.user.update.mockResolvedValue(current);
+
+      await service.update('user-1', { email: 'Test@Example.com' });
+
+      expect(bcrypt.compare).not.toHaveBeenCalled();
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: {},
+        select: expect.any(Object),
+      });
+      expect(mockRecovery.notifyEmailChanged).not.toHaveBeenCalled();
+    });
+
+    it('requires the current password to change the e-mail address', async () => {
+      mockPrisma.user.findFirst.mockResolvedValueOnce(current);
 
       await expect(
-        service.update('user-1', { email: ' Taken@Example.com ' } as any),
+        service.update('user-1', { email: 'new@example.com' } as any),
+      ).rejects.toThrow(/password is required/);
+
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects a wrong password and never reveals whether the new address is taken', async () => {
+      mockPrisma.user.findFirst
+        .mockResolvedValueOnce(current) // findOne
+        .mockResolvedValueOnce({ passwordHash: 'stored-hash' });
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+
+      await expect(
+        service.update('user-1', {
+          email: 'taken@example.com',
+          currentPassword: 'wrong',
+        } as any),
+      ).rejects.toThrow(BadRequestException);
+
+      // only findOne + the password lookup ran: no "is it taken?" query
+      expect(mockPrisma.user.findFirst).toHaveBeenCalledTimes(2);
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('normalises the email and rejects one taken by someone else', async () => {
+      mockPrisma.user.findFirst
+        .mockResolvedValueOnce(current) // findOne
+        .mockResolvedValueOnce({ passwordHash: 'stored-hash' })
+        .mockResolvedValueOnce({ id: 'other' }); // taken
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+      await expect(
+        service.update('user-1', {
+          email: ' Taken@Example.com ',
+          currentPassword: 'right-1',
+        } as any),
       ).rejects.toThrow(ConflictException);
 
       expect(mockPrisma.user.findFirst).toHaveBeenLastCalledWith({
@@ -86,7 +162,38 @@ describe('UsersService', () => {
           deletedAt: null,
           NOT: { id: 'user-1' },
         },
+        select: { id: true },
       });
+    });
+
+    it('changes the address: unverifies it, drops the password field and notifies', async () => {
+      mockPrisma.user.findFirst
+        .mockResolvedValueOnce(current) // findOne
+        .mockResolvedValueOnce({ passwordHash: 'stored-hash' })
+        .mockResolvedValueOnce(null); // not taken
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      mockPrisma.user.update.mockResolvedValue({
+        ...current,
+        email: 'new@example.com',
+      });
+
+      await service.update('user-1', {
+        email: 'New@Example.com',
+        currentPassword: 'right-1',
+      });
+
+      expect(bcrypt.compare).toHaveBeenCalledWith('right-1', 'stored-hash');
+      const { data } = mockPrisma.user.update.mock.calls[0][0];
+      expect(data).toEqual({
+        email: 'new@example.com',
+        emailVerifiedAt: null,
+      });
+      expect(data).not.toHaveProperty('currentPassword');
+      expect(mockRecovery.notifyEmailChanged).toHaveBeenCalledWith(
+        'user-1',
+        'test@example.com',
+        'new@example.com',
+      );
     });
   });
 
@@ -142,6 +249,7 @@ describe('UsersService', () => {
   });
 
   describe('softDelete', () => {
+    const dto = { currentPassword: 'right-1' };
     const owned = (projectId: string, name: string) => ({
       projectId,
       project: { name },
@@ -156,6 +264,7 @@ describe('UsersService', () => {
       mockPrisma.projectMember.groupBy.mockResolvedValue([]);
       mockPrisma.user.update.mockResolvedValue(mockUserResponse);
       mockProjects.softDeleteInTx.mockResolvedValue({ stored: [] });
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
     });
 
     // groupBy rows: other members of the owned projects, by role
@@ -173,7 +282,7 @@ describe('UsersService', () => {
     ];
 
     it('anonymises the account, removes memberships, unassigns tasks and revokes tokens', async () => {
-      await service.softDelete('user-1');
+      await service.softDelete('user-1', dto);
 
       expect(mockPrisma.task.updateMany).toHaveBeenCalledWith({
         where: { assignedToId: 'user-1' },
@@ -204,7 +313,7 @@ describe('UsersService', () => {
       ]);
       mockPrisma.projectMember.groupBy.mockResolvedValue(others('p1', 0, 3));
 
-      const attempt = service.softDelete('user-1');
+      const attempt = service.softDelete('user-1', dto);
       await expect(attempt).rejects.toBeInstanceOf(ConflictException);
       await expect(attempt).rejects.toThrow(/Team Alpha/);
       expect(mockPrisma.user.update).not.toHaveBeenCalled();
@@ -221,7 +330,7 @@ describe('UsersService', () => {
         ...others('p1', 0, 4),
       ]);
 
-      await service.softDelete('user-1');
+      await service.softDelete('user-1', dto);
 
       expect(mockProjects.softDeleteInTx).not.toHaveBeenCalled();
       expect(mockPrisma.user.update).toHaveBeenCalled();
@@ -243,7 +352,7 @@ describe('UsersService', () => {
         order.push('purge');
       });
 
-      await service.softDelete('user-1');
+      await service.softDelete('user-1', dto);
 
       // same tx client, so a later failure rolls the project delete back too
       expect(mockProjects.softDeleteInTx).toHaveBeenCalledWith(
@@ -256,7 +365,7 @@ describe('UsersService', () => {
     });
 
     it('does not touch the database transaction twice (single $transaction)', async () => {
-      await service.softDelete('user-1');
+      await service.softDelete('user-1', dto);
       expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
     });
 
@@ -267,14 +376,30 @@ describe('UsersService', () => {
       });
       mockAttachments.remove.mockResolvedValue({});
 
-      await service.softDelete('user-1');
+      await service.softDelete('user-1', dto);
 
       expect(mockAttachments.remove).toHaveBeenCalledWith('av1');
     });
 
+    it('requires the current password before touching anything', async () => {
+      await expect(service.softDelete('user-1', {} as any)).rejects.toThrow(
+        /password is required/,
+      );
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects a wrong password without deleting', async () => {
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+      await expect(service.softDelete('user-1', dto)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
     it('404s for an unknown or already deleted user', async () => {
       mockPrisma.user.findFirst.mockResolvedValue(null);
-      await expect(service.softDelete('user-1')).rejects.toThrow(
+      await expect(service.softDelete('user-1', dto)).rejects.toThrow(
         NotFoundException,
       );
     });

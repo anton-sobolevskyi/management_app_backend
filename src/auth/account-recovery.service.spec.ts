@@ -2,6 +2,8 @@ import { BadRequestException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { OneTimeTokenType } from '../generated/prisma/client';
 import { AccountRecoveryService } from './account-recovery.service';
+import { AppConfigService } from '../config/app-config.service';
+import { PasswordService } from './password.service';
 
 jest.mock('bcrypt');
 
@@ -17,6 +19,7 @@ describe('AccountRecoveryService', () => {
     prisma,
     tokens as any,
     mail as any,
+    new PasswordService(new AppConfigService({ BCRYPT_ROUNDS: '10' })),
   );
 
   beforeEach(() => {
@@ -181,6 +184,47 @@ describe('AccountRecoveryService', () => {
       await expect(
         service.sendVerificationEmailTo('a@b.co'),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('notifyEmailChanged', () => {
+    it('warns the old address and asks the new one to confirm', async () => {
+      prisma.user.findFirst.mockResolvedValue({
+        id: 'u1',
+        email: 'new@b.co',
+        emailVerifiedAt: null,
+      });
+
+      await service.notifyEmailChanged('u1', 'old@b.co', 'new@b.co');
+
+      expect(mail.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'old@b.co',
+          text: expect.stringContaining('new@b.co'),
+        }),
+      );
+      expect(mail.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'new@b.co',
+          text: expect.stringContaining('/verify-email?token=raw-token'),
+        }),
+      );
+    });
+
+    it('never throws, and still confirms the new address if the notice fails', async () => {
+      prisma.user.findFirst.mockResolvedValue({
+        id: 'u1',
+        email: 'new@b.co',
+        emailVerifiedAt: null,
+      });
+      mail.send
+        .mockRejectedValueOnce(new Error('smtp down'))
+        .mockResolvedValue(undefined);
+
+      await expect(
+        service.notifyEmailChanged('u1', 'old@b.co', 'new@b.co'),
+      ).resolves.toBeUndefined();
+      expect(mail.send).toHaveBeenCalledTimes(2);
     });
   });
 });

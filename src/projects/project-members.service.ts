@@ -18,14 +18,7 @@ import {
   paginate,
   paginationArgs,
 } from '../common/dto/pagination.dto';
-
-const memberUserSelect = {
-  id: true,
-  email: true,
-  name: true,
-  avatarId: true,
-  createdAt: true,
-} as const;
+import { USER_PUBLIC_SELECT } from '../users/user-select';
 
 @Injectable()
 export class ProjectMembersService {
@@ -42,7 +35,7 @@ export class ProjectMembersService {
       this.prisma.projectMember.count({ where }),
       this.prisma.projectMember.findMany({
         where,
-        include: { user: { select: memberUserSelect } },
+        include: { user: { select: USER_PUBLIC_SELECT } },
         orderBy: [{ joinedAt: 'asc' }, { id: 'asc' }],
         skip,
         take: limit,
@@ -52,9 +45,20 @@ export class ProjectMembersService {
     return paginate(data, total, page, limit);
   }
 
+  /**
+   * Add a member by e-mail address.
+   *
+   * Both sides need a verified address: an unverified account may belong to
+   * someone who merely typed another person's e-mail at sign-up, and being
+   * added to a project (or probing which addresses exist) must not work
+   * against such an account. An unverified target is reported exactly like an
+   * unknown one, so the answer never reveals whether the address is registered
+   * but unconfirmed.
+   */
   async add(
     projectId: string,
     dto: AddProjectMemberDto,
+    actorUserId: string,
   ): Promise<ProjectMemberResponseDto> {
     const role = dto.role ?? Role.MEMBER;
 
@@ -64,8 +68,23 @@ export class ProjectMembersService {
       );
     }
 
+    const actor = await this.prisma.user.findFirst({
+      where: { id: actorUserId, deletedAt: null },
+      select: { emailVerifiedAt: true },
+    });
+
+    if (!actor?.emailVerifiedAt) {
+      throw new ForbiddenException(
+        'Verify your e-mail address before inviting members',
+      );
+    }
+
     const user = await this.prisma.user.findFirst({
-      where: { email: normalizeEmail(dto.email), deletedAt: null },
+      where: {
+        email: normalizeEmail(dto.email),
+        deletedAt: null,
+        emailVerifiedAt: { not: null },
+      },
     });
 
     if (!user) {
@@ -90,7 +109,7 @@ export class ProjectMembersService {
         userId: user.id,
         role,
       },
-      include: { user: { select: memberUserSelect } },
+      include: { user: { select: USER_PUBLIC_SELECT } },
     });
   }
 
@@ -139,7 +158,7 @@ export class ProjectMembersService {
       return tx.projectMember.update({
         where: { id: membership.id },
         data: { role: dto.role },
-        include: { user: { select: memberUserSelect } },
+        include: { user: { select: USER_PUBLIC_SELECT } },
       });
     });
   }
@@ -188,7 +207,7 @@ export class ProjectMembersService {
       return tx.projectMember.update({
         where: { id: target.id },
         data: { role: Role.OWNER },
-        include: { user: { select: memberUserSelect } },
+        include: { user: { select: USER_PUBLIC_SELECT } },
       });
     });
   }
@@ -253,7 +272,7 @@ export class ProjectMembersService {
 
       return tx.projectMember.delete({
         where: { id: membership.id },
-        include: { user: { select: memberUserSelect } },
+        include: { user: { select: USER_PUBLIC_SELECT } },
       });
     });
   }

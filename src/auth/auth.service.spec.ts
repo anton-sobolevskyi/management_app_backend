@@ -5,6 +5,8 @@ import { JwtService } from '@nestjs/jwt';
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { hashToken } from '../common/utils/token-hash';
+import { AppConfigService } from '../config/app-config.service';
+import { PasswordService } from './password.service';
 
 jest.mock('bcrypt');
 
@@ -34,6 +36,11 @@ describe('AuthService', () => {
           provide: JwtService,
           useValue: { sign: jest.fn() },
         },
+        {
+          provide: AppConfigService,
+          useFactory: () => new AppConfigService(),
+        },
+        PasswordService,
       ],
     }).compile();
 

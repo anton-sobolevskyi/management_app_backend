@@ -17,6 +17,15 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
     );
   }
 
+  // A typo such as NODE_ENV=prod would otherwise silently run with
+  // development defaults (Swagger on, relaxed cookies, ...).
+  const nodeEnv = env.NODE_ENV?.trim();
+  if (nodeEnv && !['development', 'test', 'production'].includes(nodeEnv)) {
+    throw new Error(
+      `NODE_ENV must be one of development, test, production (got "${env.NODE_ENV}")`,
+    );
+  }
+
   const sameSite = env.COOKIE_SAME_SITE?.trim().toLowerCase();
   if (sameSite && !['lax', 'strict', 'none'].includes(sameSite)) {
     throw new Error(
@@ -25,9 +34,9 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   }
 
   // Throws on malformed JWT_EXPIRES_IN / REFRESH_TOKEN_EXPIRES_IN
-  getAppConfig(env);
+  const { isProduction } = getAppConfig(env);
 
-  if (env.NODE_ENV === 'production') {
+  if (isProduction) {
     if ((env.JWT_ACCESS_SECRET ?? '').length < 32) {
       throw new Error(
         'JWT_ACCESS_SECRET must be at least 32 characters in production',
@@ -51,7 +60,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   }
 
   // Soft warnings for optional production services
-  if (env.NODE_ENV === 'production') {
+  if (isProduction) {
     const recommended = [
       'AWS_ACCESS_KEY_ID',
       'AWS_SECRET_ACCESS_KEY',

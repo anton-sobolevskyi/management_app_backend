@@ -2,14 +2,15 @@ import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import type { Pool } from 'pg';
 import { PrismaClient } from '../generated/prisma/client';
 import { getDatabaseConfig } from '../config/database.config';
+import { AppConfigService } from '../config/app-config.service';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleDestroy {
   private readonly logger = new Logger(PrismaService.name);
   private readonly pool: Pool;
 
-  constructor() {
-    const { adapter, pool } = getDatabaseConfig();
+  constructor(config: AppConfigService) {
+    const { adapter, pool } = getDatabaseConfig(config.db.poolMax);
 
     super({ adapter });
     this.pool = pool;

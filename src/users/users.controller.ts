@@ -12,6 +12,7 @@ import {
 import { UsersService } from './users.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { DeleteAccountDto } from './dto/delete-account.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import {
@@ -19,6 +20,9 @@ import {
   Throttle,
 } from '../common/throttler/simple-throttler.guard';
 import { ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+
+/** Routes that verify the password: slow to brute-force from a stolen token. */
+const PASSWORD_CHECK_LIMIT = { limit: 5, windowMs: 60_000 };
 
 @UseGuards(JwtAuthGuard, SimpleThrottlerGuard)
 @ApiBearerAuth('access-token')
@@ -33,7 +37,12 @@ export class UsersController {
   }
 
   @Patch('me')
-  @ApiOperation({ summary: 'Update current user profile' })
+  @Throttle({ limit: 10, windowMs: 60_000 })
+  @ApiOperation({
+    summary: 'Update current user profile',
+    description:
+      'Changing `email` requires `currentPassword`, makes the address unverified again, notifies the old address and mails a confirmation link to the new one.',
+  })
   updateMe(@CurrentUser('userId') userId: string, @Body() dto: UpdateUserDto) {
     return this.usersService.update(userId, dto);
   }
@@ -54,13 +63,17 @@ export class UsersController {
   }
 
   @Delete('me')
+  @Throttle(PASSWORD_CHECK_LIMIT)
   @ApiOperation({
     summary: 'Soft-delete current user account',
     description:
-      'Fails with 409 while you are the only OWNER of a project that has other members. Projects where you are the only member are deleted with the account.',
+      'Requires `currentPassword` in the body. Fails with 409 while you are the only OWNER of a project that has other members. Projects where you are the only member are deleted with the account.',
   })
-  deleteMe(@CurrentUser('userId') userId: string) {
-    return this.usersService.softDelete(userId);
+  deleteMe(
+    @CurrentUser('userId') userId: string,
+    @Body() dto: DeleteAccountDto,
+  ) {
+    return this.usersService.softDelete(userId, dto);
   }
 
   @Get(':id')
@@ -75,6 +88,7 @@ export class UsersController {
   }
 
   @Patch(':id')
+  @Throttle({ limit: 10, windowMs: 60_000 })
   @ApiOperation({
     summary: 'Update own user profile by id (self only)',
     deprecated: true,
@@ -90,14 +104,19 @@ export class UsersController {
   }
 
   @Delete(':id')
+  @Throttle(PASSWORD_CHECK_LIMIT)
   @ApiOperation({
     summary: 'Soft-delete own account by id (self only)',
     deprecated: true,
     description: 'Deprecated: use DELETE /users/me.',
   })
-  softDelete(@Param('id') id: string, @CurrentUser('userId') userId: string) {
+  softDelete(
+    @Param('id') id: string,
+    @Body() dto: DeleteAccountDto,
+    @CurrentUser('userId') userId: string,
+  ) {
     this.assertSelf(userId, id);
-    return this.usersService.softDelete(id);
+    return this.usersService.softDelete(id, dto);
   }
 
   private assertSelf(actorId: string, targetId: string) {

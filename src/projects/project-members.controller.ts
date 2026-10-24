@@ -61,10 +61,18 @@ export class ProjectMembersController {
   @Post()
   @Throttle({ limit: 30, windowMs: 60_000 })
   @Roles(Role.OWNER, Role.ADMIN)
-  @ApiOperation({ summary: 'Add a member by email' })
+  @ApiOperation({
+    summary: 'Add a member by email',
+    description:
+      'Both you and the invited person need a verified e-mail address. An unverified or unknown address answers 404 "User not found".',
+  })
   @ApiOkResponse({ type: ProjectMemberResponseDto })
-  add(@Param('projectId') projectId: string, @Body() dto: AddProjectMemberDto) {
-    return this.membersService.add(projectId, dto);
+  add(
+    @Param('projectId') projectId: string,
+    @Body() dto: AddProjectMemberDto,
+    @CurrentUser('userId') actorId: string,
+  ) {
+    return this.membersService.add(projectId, dto, actorId);
   }
 
   @Patch(':userId')

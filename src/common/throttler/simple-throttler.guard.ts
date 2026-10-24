@@ -3,14 +3,15 @@ import {
   ExecutionContext,
   HttpException,
   HttpStatus,
+  Inject,
   Injectable,
   SetMetadata,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
-import { getAppConfig } from '../../config/app.config';
+import { AppConfigService } from '../../config/app-config.service';
 import { normalizeEmail } from '../utils/email';
-import { rateLimitStore } from './rate-limit.store';
+import { RATE_LIMIT_STORE, type RateLimitStore } from './rate-limit.store';
 
 export const THROTTLE_KEY = 'throttle';
 export const SKIP_GLOBAL_THROTTLE_KEY = 'skipGlobalThrottle';
@@ -33,19 +34,19 @@ export const Throttle = (options: ThrottleOptions) =>
 export const SkipGlobalThrottle = () =>
   SetMetadata(SKIP_GLOBAL_THROTTLE_KEY, true);
 
-function isDisabled(): boolean {
-  return process.env.NODE_ENV === 'test' || getAppConfig().throttlingDisabled;
-}
-
 function clientIp(req: Request): string {
   // req.ip already honours the `trust proxy` setting (see main.ts). Never read
   // X-Forwarded-For directly: its first entry is client-controlled.
   return req.ip || req.socket?.remoteAddress || 'unknown';
 }
 
-function consume(key: string, { limit, windowMs }: ThrottleLimit): void {
+async function consume(
+  store: RateLimitStore,
+  key: string,
+  { limit, windowMs }: ThrottleLimit,
+): Promise<void> {
   const now = Date.now();
-  const bucket = rateLimitStore.hit(key, windowMs, now);
+  const bucket = await store.hit(key, windowMs, now);
 
   if (bucket.count > limit) {
     const retryAfter = Math.ceil((bucket.resetAt - now) / 1000);
@@ -63,14 +64,19 @@ function consume(key: string, { limit, windowMs }: ThrottleLimit): void {
 /**
  * Per-route limiter driven by @Throttle (per user when authenticated, else
  * per IP). Storage is pluggable, see rate-limit.store.ts.
- * Disabled when NODE_ENV=test so e2e can register many users quickly.
+ * Turned off only by DISABLE_THROTTLE=true (e2e, load tests), never by
+ * NODE_ENV, and never in production (see AppConfig / validateEnv).
  */
 @Injectable()
 export class SimpleThrottlerGuard implements CanActivate {
-  constructor(private reflector: Reflector) {}
+  constructor(
+    private reflector: Reflector,
+    @Inject(RATE_LIMIT_STORE) private store: RateLimitStore,
+    private config: AppConfigService,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
-    if (isDisabled()) {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    if (this.config.throttlingDisabled) {
       return true;
     }
 
@@ -88,12 +94,13 @@ export class SimpleThrottlerGuard implements CanActivate {
     const subject = req.user?.userId ?? clientIp(req);
     const route = `${context.getClass().name}:${context.getHandler().name}`;
 
-    consume(`${route}:${subject}`, options);
+    await consume(this.store, `${route}:${subject}`, options);
 
     if (options.perEmail) {
       const body = req.body as { email?: unknown } | undefined;
       if (typeof body?.email === 'string' && body.email.length <= 320) {
-        consume(
+        await consume(
+          this.store,
           `${route}:email:${normalizeEmail(body.email)}`,
           options.perEmail,
         );
@@ -111,10 +118,14 @@ export class SimpleThrottlerGuard implements CanActivate {
  */
 @Injectable()
 export class GlobalThrottlerGuard implements CanActivate {
-  constructor(private reflector: Reflector) {}
+  constructor(
+    private reflector: Reflector,
+    @Inject(RATE_LIMIT_STORE) private store: RateLimitStore,
+    private config: AppConfigService,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
-    if (isDisabled()) {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    if (this.config.throttlingDisabled) {
       return true;
     }
 
@@ -127,10 +138,9 @@ export class GlobalThrottlerGuard implements CanActivate {
     }
 
     const req = context.switchToHttp().getRequest<Request>();
-    const { defaultPerMinute } = getAppConfig().rateLimit;
 
-    consume(`global:${clientIp(req)}`, {
-      limit: defaultPerMinute,
+    await consume(this.store, `global:${clientIp(req)}`, {
+      limit: this.config.rateLimit.defaultPerMinute,
       windowMs: 60_000,
     });
 

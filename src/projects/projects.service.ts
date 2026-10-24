@@ -15,6 +15,7 @@ import {
   paginate,
   paginationArgs,
 } from '../common/dto/pagination.dto';
+import { USER_PUBLIC_SELECT } from '../users/user-select';
 
 const MEMBER_PREVIEW_LIMIT = 20;
 const MEMBER_DETAIL_LIMIT = 100;
@@ -88,15 +89,7 @@ export class ProjectsService {
           orderBy: [{ joinedAt: 'asc' }, { id: 'asc' }],
           take: MEMBER_DETAIL_LIMIT,
           include: {
-            user: {
-              select: {
-                id: true,
-                email: true,
-                name: true,
-                avatarId: true,
-                createdAt: true,
-              },
-            },
+            user: { select: USER_PUBLIC_SELECT },
           },
         },
         _count: { select: { members: true } },

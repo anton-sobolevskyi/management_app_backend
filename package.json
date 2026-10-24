@@ -112,5 +112,9 @@
     "*.{json,md,yml,yaml}": [
       "prettier --write"
     ]
+  },
+  "overrides": {
+    "multer": "2.5.0",
+    "body-parser": "2.4.0"
   }
 }

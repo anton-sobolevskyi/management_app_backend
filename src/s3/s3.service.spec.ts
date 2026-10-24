@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { S3Service, contentDisposition } from './s3.service';
+import { AppConfigService } from '../config/app-config.service';
 import {
   S3Client,
   PutObjectCommand,
@@ -29,7 +30,10 @@ describe('S3Service', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [S3Service],
+      providers: [
+        S3Service,
+        { provide: AppConfigService, useFactory: () => new AppConfigService() },
+      ],
     }).compile();
 
     service = module.get<S3Service>(S3Service);

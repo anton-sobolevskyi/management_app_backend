@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 import { ForbiddenException } from '@nestjs/common';
+import { SimpleThrottlerGuard } from '../common/throttler/simple-throttler.guard';
 
 describe('UsersController', () => {
   let controller: UsersController;
@@ -30,7 +31,10 @@ describe('UsersController', () => {
           },
         },
       ],
-    }).compile();
+    })
+      .overrideGuard(SimpleThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<UsersController>(UsersController);
     service = module.get<UsersService>(UsersService);
@@ -57,8 +61,9 @@ describe('UsersController', () => {
 
     it('deleteMe deletes the authenticated user', async () => {
       jest.spyOn(service, 'softDelete').mockResolvedValue(mockUserResponse);
-      await controller.deleteMe('user-1');
-      expect(service.softDelete).toHaveBeenCalledWith('user-1');
+      const dto = { currentPassword: 'pw-1' };
+      await controller.deleteMe('user-1', dto);
+      expect(service.softDelete).toHaveBeenCalledWith('user-1', dto);
     });
 
     it('changePassword answers 204 and delegates', async () => {
@@ -89,9 +94,9 @@ describe('UsersController', () => {
       expect(() => controller.update('user-2', {}, 'user-1')).toThrow(
         ForbiddenException,
       );
-      expect(() => controller.softDelete('user-2', 'user-1')).toThrow(
-        ForbiddenException,
-      );
+      expect(() =>
+        controller.softDelete('user-2', { currentPassword: 'x' }, 'user-1'),
+      ).toThrow(ForbiddenException);
       expect(service.findOne).not.toHaveBeenCalled();
     });
 
@@ -99,9 +104,10 @@ describe('UsersController', () => {
       jest.spyOn(service, 'update').mockResolvedValue(mockUserResponse);
       jest.spyOn(service, 'softDelete').mockResolvedValue(mockUserResponse);
       await controller.update('user-1', { name: 'X' }, 'user-1');
-      await controller.softDelete('user-1', 'user-1');
+      const dto = { currentPassword: 'pw-1' };
+      await controller.softDelete('user-1', dto, 'user-1');
       expect(service.update).toHaveBeenCalledWith('user-1', { name: 'X' });
-      expect(service.softDelete).toHaveBeenCalledWith('user-1');
+      expect(service.softDelete).toHaveBeenCalledWith('user-1', dto);
     });
   });
 });

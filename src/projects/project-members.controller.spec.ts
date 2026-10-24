@@ -1,3 +1,4 @@
+import { SimpleThrottlerGuard } from '../common/throttler/simple-throttler.guard';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProjectMembersController } from './project-members.controller';
 import { ProjectMembersService } from './project-members.service';
@@ -21,6 +22,8 @@ describe('ProjectMembersController', () => {
       controllers: [ProjectMembersController],
       providers: [{ provide: ProjectMembersService, useValue: mockService }],
     })
+      .overrideGuard(SimpleThrottlerGuard)
+      .useValue({ canActivate: () => true })
       .overrideGuard(ProjectMemberGuard)
       .useValue({ canActivate: () => true })
       .compile();
@@ -39,8 +42,8 @@ describe('ProjectMembersController', () => {
   it('adds a member', async () => {
     const dto = { email: 'bob@example.com', role: Role.MEMBER };
     mockService.add.mockResolvedValue({ id: 'm1' });
-    await controller.add('p1', dto);
-    expect(service.add).toHaveBeenCalledWith('p1', dto);
+    await controller.add('p1', dto, 'u1');
+    expect(service.add).toHaveBeenCalledWith('p1', dto, 'u1');
   });
 
   it('updates role', async () => {

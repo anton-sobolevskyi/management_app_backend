@@ -12,6 +12,7 @@ import {
   paginate,
   paginationArgs,
 } from '../common/dto/pagination.dto';
+import { USER_PUBLIC_SELECT } from '../users/user-select';
 
 @Injectable()
 export class CommentsService {
@@ -43,15 +44,7 @@ export class CommentsService {
       this.prisma.comment.findMany({
         where,
         include: {
-          author: {
-            select: {
-              id: true,
-              email: true,
-              name: true,
-              avatarId: true,
-              createdAt: true,
-            },
-          },
+          author: { select: USER_PUBLIC_SELECT },
         },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         skip,

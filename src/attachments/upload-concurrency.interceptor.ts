@@ -8,9 +8,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { Observable, finalize } from 'rxjs';
-import { getAppConfig } from '../config/app.config';
-
-let active = 0;
+import { AppConfigService } from '../config/app-config.service';
 
 /**
  * Uploads are buffered in memory (up to MAX_FILE_SIZE each) while multer
@@ -21,10 +19,13 @@ let active = 0;
  */
 @Injectable()
 export class UploadConcurrencyInterceptor implements NestInterceptor {
-  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const { maxConcurrentUploads } = getAppConfig();
+  /** Uploads currently being received by this process. */
+  private active = 0;
 
-    if (active >= maxConcurrentUploads) {
+  constructor(private config: AppConfigService) {}
+
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+    if (this.active >= this.config.maxConcurrentUploads) {
       const retryAfter = 2;
       context
         .switchToHttp()
@@ -40,16 +41,16 @@ export class UploadConcurrencyInterceptor implements NestInterceptor {
       );
     }
 
-    active += 1;
+    this.active += 1;
     return next.handle().pipe(
       finalize(() => {
-        active -= 1;
+        this.active -= 1;
       }),
     );
   }
-}
 
-/** Test helper: how many uploads are currently in flight. */
-export function activeUploads(): number {
-  return active;
+  /** How many uploads are currently in flight (diagnostics / tests). */
+  get activeUploads(): number {
+    return this.active;
+  }
 }

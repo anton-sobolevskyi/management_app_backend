@@ -60,6 +60,8 @@ const createUser = async (dto: {
       email: dto.email,
       passwordHash: dto.passwordHash,
       name: dto.name,
+      // Seeded accounts are usable right away (invites need a verified e-mail)
+      emailVerifiedAt: new Date(),
     },
   });
 };

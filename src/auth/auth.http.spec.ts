@@ -7,6 +7,12 @@ import { AuthController } from './auth.controller';
 import { AccountRecoveryService } from './account-recovery.service';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { AppConfigService } from '../config/app-config.service';
+import { PasswordService } from './password.service';
+import {
+  RATE_LIMIT_STORE,
+  InMemoryRateLimitStore,
+} from '../common/throttler/rate-limit.store';
 import { AllExceptionsFilter } from '../common/filters/all-exceptions.filter';
 
 /**
@@ -90,6 +96,7 @@ describe('Auth refresh flow over HTTP', () => {
   beforeAll(async () => {
     process.env.JWT_ACCESS_SECRET = 'access-secret';
     process.env.NODE_ENV = 'test';
+    process.env.DISABLE_THROTTLE = 'true';
     process.env.FRONTEND_URL = 'https://app.example.com';
     fake = createFakePrisma();
 
@@ -98,6 +105,12 @@ describe('Auth refresh flow over HTTP', () => {
       controllers: [AuthController],
       providers: [
         AuthService,
+        PasswordService,
+        { provide: AppConfigService, useFactory: () => new AppConfigService() },
+        {
+          provide: RATE_LIMIT_STORE,
+          useFactory: () => new InMemoryRateLimitStore(),
+        },
         { provide: PrismaService, useValue: fake },
         {
           provide: AccountRecoveryService,

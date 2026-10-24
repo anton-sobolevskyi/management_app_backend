@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
+import { AppConfigModule } from './config/app-config.module';
+import { RateLimitModule } from './common/throttler/rate-limit.module';
 import { getLoggerParams } from './config/logger.config';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
@@ -24,6 +26,8 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    AppConfigModule,
+    RateLimitModule,
     LoggerModule.forRoot(getLoggerParams()),
     PrismaModule,
     AuthorizationModule,

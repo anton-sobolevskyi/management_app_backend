@@ -10,7 +10,7 @@ import { validateEnv } from './config/env.validation';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { getAllowedOrigins } from './config/cors.config';
 import { getTrustProxy } from './config/trust-proxy.config';
-import { getAppConfig } from './config/app.config';
+import { AppConfigService } from './config/app-config.service';
 import { operationIdFactory } from './config/swagger.config';
 
 async function bootstrap() {
@@ -20,6 +20,7 @@ async function bootstrap() {
     bufferLogs: true,
   });
   app.useLogger(app.get(Logger));
+  const config = app.get(AppConfigService);
 
   // Makes req.ip honour only the configured number of proxy hops, so a client
   // cannot spoof its address (and dodge rate limits) via X-Forwarded-For.
@@ -41,7 +42,7 @@ async function bootstrap() {
       'Permissions-Policy',
       'camera=(), microphone=(), geolocation=()',
     );
-    if (process.env.NODE_ENV === 'production') {
+    if (config.isProduction) {
       res.setHeader(
         'Strict-Transport-Security',
         'max-age=15552000; includeSubDomains',
@@ -58,7 +59,7 @@ async function bootstrap() {
     maxAge: 86_400,
   });
 
-  if (getAppConfig().swaggerEnabled) {
+  if (config.swaggerEnabled) {
     const config = new DocumentBuilder()
       .setTitle('API')
       .setDescription('Project management API')

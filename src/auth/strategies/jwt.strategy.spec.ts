@@ -1,5 +1,6 @@
 import { JwtStrategy } from './jwt.strategy';
 import { UnauthorizedException } from '@nestjs/common';
+import { AppConfigService } from '../../config/app-config.service';
 
 describe('JwtStrategy', () => {
   let strategy: JwtStrategy;
@@ -9,7 +10,10 @@ describe('JwtStrategy', () => {
 
   beforeEach(() => {
     process.env.JWT_ACCESS_SECRET = 'test-secret';
-    strategy = new JwtStrategy(mockPrisma as any);
+    strategy = new JwtStrategy(
+      mockPrisma as any,
+      new AppConfigService({ JWT_ACCESS_SECRET: 'test-secret' }),
+    );
     jest.clearAllMocks();
   });
 

@@ -42,11 +42,13 @@ describe('ProjectMembersService', () => {
   });
 
   describe('add', () => {
+    // add() looks up the inviting user first, then the invited one
+    const verifiedActor = { emailVerifiedAt: new Date() };
+
     it('adds a member by email', async () => {
-      mockPrisma.user.findFirst.mockResolvedValue({
-        id: 'u2',
-        email: 'bob@example.com',
-      });
+      mockPrisma.user.findFirst
+        .mockResolvedValueOnce(verifiedActor)
+        .mockResolvedValueOnce({ id: 'u2', email: 'bob@example.com' });
       mockPrisma.projectMember.findUnique.mockResolvedValue(null);
       mockPrisma.projectMember.create.mockResolvedValue({
         id: 'm1',
@@ -55,44 +57,69 @@ describe('ProjectMembersService', () => {
         role: Role.MEMBER,
       });
 
-      const result = await service.add('p1', {
-        email: 'bob@example.com',
-        role: Role.MEMBER,
-      });
+      const result = await service.add(
+        'p1',
+        { email: 'bob@example.com', role: Role.MEMBER },
+        'u1',
+      );
 
       expect(result.userId).toBe('u2');
     });
 
-    it('looks the user up by normalised email', async () => {
-      mockPrisma.user.findFirst.mockResolvedValue(null);
+    it('looks up only verified users, by normalised email', async () => {
+      mockPrisma.user.findFirst
+        .mockResolvedValueOnce(verifiedActor)
+        .mockResolvedValueOnce(null);
 
       await expect(
-        service.add('p1', { email: '  Bob@Example.COM ' }),
+        service.add('p1', { email: '  Bob@Example.COM ' }, 'u1'),
       ).rejects.toBeInstanceOf(NotFoundException);
 
-      expect(mockPrisma.user.findFirst).toHaveBeenCalledWith({
-        where: { email: 'bob@example.com', deletedAt: null },
+      expect(mockPrisma.user.findFirst).toHaveBeenLastCalledWith({
+        where: {
+          email: 'bob@example.com',
+          deletedAt: null,
+          emailVerifiedAt: { not: null },
+        },
       });
+    });
+
+    it('refuses to invite while the inviting user is unverified', async () => {
+      mockPrisma.user.findFirst.mockResolvedValueOnce({
+        emailVerifiedAt: null,
+      });
+
+      await expect(
+        service.add('p1', { email: 'bob@example.com' }, 'u1'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+
+      // no lookup of the target, so nothing is revealed about it
+      expect(mockPrisma.user.findFirst).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.projectMember.create).not.toHaveBeenCalled();
     });
 
     it('rejects assigning OWNER via add', async () => {
       await expect(
-        service.add('p1', { email: 'a@b.com', role: Role.OWNER }),
+        service.add('p1', { email: 'a@b.com', role: Role.OWNER }, 'u1'),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
-    it('rejects unknown email', async () => {
-      mockPrisma.user.findFirst.mockResolvedValue(null);
+    it('answers 404 for an unknown (or unverified) email', async () => {
+      mockPrisma.user.findFirst
+        .mockResolvedValueOnce(verifiedActor)
+        .mockResolvedValueOnce(null);
       await expect(
-        service.add('p1', { email: 'missing@example.com' }),
-      ).rejects.toBeInstanceOf(NotFoundException);
+        service.add('p1', { email: 'missing@example.com' }, 'u1'),
+      ).rejects.toThrow('User not found');
     });
 
     it('rejects duplicate membership', async () => {
-      mockPrisma.user.findFirst.mockResolvedValue({ id: 'u2' });
+      mockPrisma.user.findFirst
+        .mockResolvedValueOnce(verifiedActor)
+        .mockResolvedValueOnce({ id: 'u2' });
       mockPrisma.projectMember.findUnique.mockResolvedValue({ id: 'm1' });
       await expect(
-        service.add('p1', { email: 'bob@example.com' }),
+        service.add('p1', { email: 'bob@example.com' }, 'u1'),
       ).rejects.toBeInstanceOf(ConflictException);
     });
   });
