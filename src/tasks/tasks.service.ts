@@ -140,6 +140,41 @@ export class TasksService {
     return paginate(data, total, page, limit);
   }
 
+  /** "My work": open tasks assigned to the user, across projects they still belong to. */
+  async findAssignedTo(
+    userId: string,
+    filters: { includeDone?: boolean } = {},
+    query: PaginationQueryDto = {},
+  ): Promise<PaginatedResponseDto<TaskResponseDto>> {
+    const { page, limit, skip } = paginationArgs(query);
+
+    const where: Prisma.TaskWhereInput = {
+      assignedToId: userId,
+      deletedAt: null,
+      project: { deletedAt: null, members: { some: { userId } } },
+    };
+    if (!filters.includeDone) {
+      where.status = { not: TaskStatus.DONE };
+    }
+
+    const [total, data] = await Promise.all([
+      this.prisma.task.count({ where }),
+      this.prisma.task.findMany({
+        where,
+        include: { project: { select: { id: true, name: true } } },
+        orderBy: [
+          { dueDate: { sort: 'asc', nulls: 'last' } },
+          { createdAt: 'desc' },
+          { id: 'desc' },
+        ],
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    return paginate(data, total, page, limit);
+  }
+
   async findOne(id: string): Promise<TaskResponseDto> {
     const task = await this.prisma.task.findFirst({
       where: { id, deletedAt: null },

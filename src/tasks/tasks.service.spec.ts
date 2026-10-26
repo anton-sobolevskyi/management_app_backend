@@ -224,4 +224,35 @@ describe('TasksService', () => {
       ).rejects.toThrow(BadRequestException);
     });
   });
+
+  describe('findAssignedTo', () => {
+    beforeEach(() => {
+      mockPrisma.task.count.mockResolvedValue(0);
+      mockPrisma.task.findMany.mockResolvedValue([]);
+    });
+
+    it('only returns open tasks assigned to the user in projects they still belong to', async () => {
+      await service.findAssignedTo('u1');
+
+      const { where, include, orderBy } =
+        mockPrisma.task.findMany.mock.calls[0][0];
+      expect(where).toEqual({
+        assignedToId: 'u1',
+        deletedAt: null,
+        status: { not: 'DONE' },
+        project: { deletedAt: null, members: { some: { userId: 'u1' } } },
+      });
+      expect(include).toEqual({
+        project: { select: { id: true, name: true } },
+      });
+      expect(orderBy[0]).toEqual({ dueDate: { sort: 'asc', nulls: 'last' } });
+    });
+
+    it('includes finished tasks when asked', async () => {
+      await service.findAssignedTo('u1', { includeDone: true });
+
+      const { where } = mockPrisma.task.findMany.mock.calls[0][0];
+      expect(where).not.toHaveProperty('status');
+    });
+  });
 });

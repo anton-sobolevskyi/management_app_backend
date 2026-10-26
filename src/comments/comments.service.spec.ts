@@ -53,8 +53,52 @@ describe('CommentsService', () => {
     expect(result).toEqual(mockComment);
     expect(mockPrisma.comment.create).toHaveBeenCalledWith({
       data: { content: dto.content, taskId: 't1', authorId: 'u1' },
+      include: expect.objectContaining({
+        author: expect.anything(),
+        attachments: expect.anything(),
+      }),
     });
   });
+
+  it.each([
+    [
+      'list',
+      async () => {
+        mockPrisma.comment.count.mockResolvedValue(0);
+        mockPrisma.comment.findMany.mockResolvedValue([]);
+        await service.findAll('t1');
+        return mockPrisma.comment.findMany.mock.calls[0][0];
+      },
+    ],
+    [
+      'create',
+      async () => {
+        mockPrisma.comment.create.mockResolvedValue({ id: 'c1' });
+        await service.create('t1', { content: 'Hi' }, 'u1');
+        return mockPrisma.comment.create.mock.calls[0][0];
+      },
+    ],
+    [
+      'update',
+      async () => {
+        mockAuthz.assertCommentAccess.mockResolvedValue({ id: 'c1' });
+        mockAuthz.assertCommentAuthorOrAdmin.mockResolvedValue(undefined);
+        mockPrisma.comment.update.mockResolvedValue({ id: 'c1' });
+        await service.update('c1', { content: 'Hi' }, 'u1');
+        return mockPrisma.comment.update.mock.calls[0][0];
+      },
+    ],
+  ])(
+    'returns author and files (without storage keys) on %s',
+    async (_name, run) => {
+      const { include } = await run();
+
+      expect(include.author).toBeDefined();
+      expect(include.attachments.select).toBeDefined();
+      expect(include.attachments.select).not.toHaveProperty('s3Key');
+      expect(include.attachments.select).not.toHaveProperty('s3Bucket');
+    },
+  );
 
   it('lists comments oldest first with a stable tiebreaker', async () => {
     mockPrisma.comment.count.mockResolvedValue(0);

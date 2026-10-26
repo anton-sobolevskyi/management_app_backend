@@ -24,7 +24,7 @@ describe('ProjectsService', () => {
       update: jest.fn(),
       count: jest.fn(),
     },
-    task: { findMany: jest.fn(), updateMany: jest.fn() },
+    task: { findMany: jest.fn(), updateMany: jest.fn(), groupBy: jest.fn() },
     comment: { findMany: jest.fn(), updateMany: jest.fn() },
     $transaction: jest.fn(),
   };
@@ -65,16 +65,42 @@ describe('ProjectsService', () => {
       mockPrisma.project.findMany.mockResolvedValue([
         { ...mockProject, _count: { members: 57 } },
       ]);
+      mockPrisma.task.groupBy.mockResolvedValue([]);
 
       const result = await service.findAll('user-1');
 
-      expect(result.data).toEqual([{ ...mockProject, memberCount: 57 }]);
+      expect(result.data).toEqual([
+        { ...mockProject, memberCount: 57, taskCount: 0, doneTaskCount: 0 },
+      ]);
       expect(result.data[0]).not.toHaveProperty('_count');
       expect(result.meta.total).toBe(1);
 
       const args = mockPrisma.project.findMany.mock.calls[0][0];
       expect(args.include.members.take).toBe(20);
       expect(args.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }]);
+    });
+
+    it('adds total and finished task counts per project', async () => {
+      mockPrisma.project.count.mockResolvedValue(2);
+      mockPrisma.project.findMany.mockResolvedValue([
+        { ...mockProject, _count: { members: 1 } },
+        { ...mockProject, id: 'project-2', _count: { members: 1 } },
+      ]);
+      mockPrisma.task.groupBy.mockResolvedValue([
+        { projectId: 'project-1', status: 'TODO', _count: { _all: 3 } },
+        { projectId: 'project-1', status: 'DONE', _count: { _all: 2 } },
+      ]);
+
+      const result = await service.findAll('user-1');
+
+      expect(result.data[0]).toMatchObject({ taskCount: 5, doneTaskCount: 2 });
+      expect(result.data[1]).toMatchObject({ taskCount: 0, doneTaskCount: 0 });
+
+      const args = mockPrisma.task.groupBy.mock.calls[0][0];
+      expect(args.where).toEqual({
+        projectId: { in: ['project-1', 'project-2'] },
+        deletedAt: null,
+      });
     });
   });
 

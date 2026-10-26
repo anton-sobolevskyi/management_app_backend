@@ -21,6 +21,18 @@ export class ProjectResponseDto {
   })
   memberCount?: number;
 
+  @ApiProperty({
+    required: false,
+    description: 'Open and finished tasks in the project (list view only)',
+  })
+  taskCount?: number;
+
+  @ApiProperty({
+    required: false,
+    description: 'Tasks in status DONE (list view only)',
+  })
+  doneTaskCount?: number;
+
   @ApiProperty()
   createdAt: Date;
 

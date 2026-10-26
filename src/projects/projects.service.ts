@@ -69,10 +69,28 @@ export class ProjectsService {
       }),
     ]);
 
+    // One grouped query for the whole page: total and finished tasks per project
+    const grouped = await this.prisma.task.groupBy({
+      by: ['projectId', 'status'],
+      where: { projectId: { in: data.map((p) => p.id) }, deletedAt: null },
+      _count: { _all: true },
+    });
+    const counts = new Map<string, { total: number; done: number }>();
+    for (const row of grouped) {
+      const entry = counts.get(row.projectId) ?? { total: 0, done: 0 };
+      entry.total += row._count._all;
+      if (row.status === 'DONE') {
+        entry.done += row._count._all;
+      }
+      counts.set(row.projectId, entry);
+    }
+
     return paginate(
       data.map(({ _count, ...project }) => ({
         ...project,
         memberCount: _count.members,
+        taskCount: counts.get(project.id)?.total ?? 0,
+        doneTaskCount: counts.get(project.id)?.done ?? 0,
       })),
       total,
       page,

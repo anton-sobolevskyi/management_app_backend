@@ -3,6 +3,14 @@ import { TaskStatus, Priority } from '../../generated/prisma/enums';
 import { CommentResponseDto } from '../../comments/dto/comment-response.dto';
 import { AttachmentResponseDto } from '../../attachments/dto/attachment-response.dto';
 
+export class TaskProjectDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty({ example: 'Website Redesign' })
+  name: string;
+}
+
 export class TaskResponseDto {
   @ApiProperty()
   id: string;
@@ -30,6 +38,13 @@ export class TaskResponseDto {
 
   @ApiProperty({ required: false, nullable: true })
   assignedToId: string | null;
+
+  @ApiProperty({
+    required: false,
+    type: () => TaskProjectDto,
+    description: 'Only set on GET /users/me/tasks',
+  })
+  project?: TaskProjectDto;
 
   @ApiProperty({ required: false, type: () => [CommentResponseDto] })
   comments?: CommentResponseDto[];

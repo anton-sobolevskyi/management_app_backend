@@ -13,6 +13,16 @@ import {
   paginationArgs,
 } from '../common/dto/pagination.dto';
 import { USER_PUBLIC_SELECT } from '../users/user-select';
+import type { Prisma } from '../generated/prisma/client';
+
+/** Every comment response carries its author and files, so clients never lose them on edit. */
+const COMMENT_INCLUDE = {
+  author: { select: USER_PUBLIC_SELECT },
+  attachments: {
+    select: ATTACHMENT_PUBLIC_SELECT,
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+  },
+} satisfies Prisma.CommentInclude;
 
 @Injectable()
 export class CommentsService {
@@ -29,6 +39,7 @@ export class CommentsService {
   ): Promise<CommentResponseDto> {
     return this.prisma.comment.create({
       data: { content: dto.content, taskId, authorId },
+      include: COMMENT_INCLUDE,
     });
   }
 
@@ -43,9 +54,7 @@ export class CommentsService {
       this.prisma.comment.count({ where }),
       this.prisma.comment.findMany({
         where,
-        include: {
-          author: { select: USER_PUBLIC_SELECT },
-        },
+        include: COMMENT_INCLUDE,
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         skip,
         take: limit,
@@ -58,7 +67,7 @@ export class CommentsService {
   async findOne(id: string): Promise<CommentResponseDto> {
     const comment = await this.prisma.comment.findFirst({
       where: { id, deletedAt: null },
-      include: { attachments: { select: ATTACHMENT_PUBLIC_SELECT } },
+      include: COMMENT_INCLUDE,
     });
 
     if (!comment) {
@@ -80,6 +89,7 @@ export class CommentsService {
     return this.prisma.comment.update({
       where: { id },
       data: dto,
+      include: COMMENT_INCLUDE,
     });
   }
 
