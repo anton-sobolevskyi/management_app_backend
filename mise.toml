@@ -15,6 +15,7 @@ test-e2e = { description = "Run e2e tests (spins up Postgres via testcontainers)
 db-up = { description = "Start database containers (waits until healthy)", run = "docker compose up -d --wait" }
 db-down = { description = "Stop database containers", run = "docker compose down" }
 db-stop = { description = "Stop database containers", run = "docker compose stop" }
+db-seed-demo = { description = "Add/refresh the demo users and projects without deleting other data", run = "npm run db:seed:demo" }
 db-setup = { description = "Start DB, generate client, run migrations, and seed", run = [
   "docker compose up -d --wait",
   "npm run db:generate",
